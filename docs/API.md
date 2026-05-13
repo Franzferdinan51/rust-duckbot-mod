@@ -205,9 +205,59 @@ Actions: `left`, `right`, `up`, `down`, `zoom`, `zoom_in`, `zoom_out`, `reset`, 
 { "query": "scrap", "include_unavailable": false }
 ```
 
+`rust_list_kits`
+
+```json
+{ "category": "combat" }
+```
+
+`rust_give_kit` requires `admin`.
+
+```json
+{
+  "player_id": "TargetName",
+  "kit_name": "starter",
+  "requester_role": "admin",
+  "admin_token": "change-me"
+}
+```
+
+### Fun And Guidance
+
+`rust_roll_dice`
+
+```json
+{ "sides": 6, "count": 2, "player_id": "TargetName", "announce": true }
+```
+
+`rust_8ball`
+
+```json
+{ "question": "Should we raid tonight?", "player_id": "TargetName", "announce": true }
+```
+
+`rust_player_tip`
+
+```json
+{ "category": "base", "player_id": "TargetName", "announce": true }
+```
+
+These tools are player-safe by default. When `announce` is true, the MCP server sends the result through the existing `chat_send` bridge.
+
 ### Admin
 
 `rust_admin_command` requires `admin` and uses the command whitelist.
+
+```json
+{
+  "command": "status",
+  "requester_role": "admin",
+  "player_name": "Duckets",
+  "admin_token": "change-me"
+}
+```
+
+`rust_rcon_command` requires `admin`, uses the same MCP whitelist, and sends a WebRCON-backed command through the Rust plugin.
 
 ```json
 {

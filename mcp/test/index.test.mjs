@@ -24,7 +24,10 @@ test('exports a broad RustDuckBot MCP tool surface', () => {
   assert.equal(toolNames.has('rust_rcon_command'), true);
   assert.equal(toolNames.has('rust_list_kits'), true);
   assert.equal(toolNames.has('rust_give_kit'), true);
-  assert.equal(ALL_TOOLS.length >= 24, true);
+  assert.equal(toolNames.has('rust_roll_dice'), true);
+  assert.equal(toolNames.has('rust_8ball'), true);
+  assert.equal(toolNames.has('rust_player_tip'), true);
+  assert.equal(ALL_TOOLS.length >= 27, true);
 });
 
 test('updates live state from Rust plugin heartbeat and camera messages', async () => {
@@ -105,11 +108,58 @@ test('lists kits and lets admins queue kit grants for the Rust plugin', async ()
   assert.equal(state.outboundMessages.at(-1).player_id, 'steam-vip');
 });
 
+test('lets agents run safe player-facing fun tools through chat', async () => {
+  const state = createState(false);
+  handleRustMessage({
+    type: 'player_list',
+    players: [{ id: 'steam-user', name: 'RegularPlayer', role: 'user' }],
+  }, state);
+
+  const roll = JSON.parse((await handleToolCall('rust_roll_dice', {
+    sides: 6,
+    count: 2,
+    player_id: 'steam-user',
+    announce: true,
+  }, state, DEFAULT_CONFIG)).content[0].text);
+
+  assert.equal(roll.rolls.length, 2);
+  assert.equal(roll.rolls.every((value) => value >= 1 && value <= 6), true);
+  assert.equal(state.outboundMessages.at(-1).type, 'chat_send');
+  assert.equal(state.outboundMessages.at(-1).target, 'steam-user');
+
+  const eightBall = JSON.parse((await handleToolCall('rust_8ball', {
+    question: 'Will the raid go well?',
+    player_id: 'steam-user',
+  }, state, DEFAULT_CONFIG)).content[0].text);
+
+  assert.equal(eightBall.question, 'Will the raid go well?');
+  assert.equal(typeof eightBall.answer, 'string');
+});
+
+test('gives contextual player tips and can announce them in-game', async () => {
+  const state = createState(false);
+
+  const tip = JSON.parse((await handleToolCall('rust_player_tip', {
+    category: 'base',
+    player_id: 'steam-user',
+    announce: true,
+  }, state, DEFAULT_CONFIG)).content[0].text);
+
+  assert.equal(tip.category, 'base');
+  assert.match(tip.tip, /tool cupboard|airlock|upkeep/i);
+  assert.equal(state.outboundMessages.at(-1).type, 'chat_send');
+  assert.equal(state.outboundMessages.at(-1).target, 'steam-user');
+});
+
 test('guards the C# /db command path against previous silent-load regressions', () => {
   const source = readFileSync(resolve(repoRoot, 'src/DuckBotMod.cs'), 'utf8');
   assert.match(source, /cmd\.AddChatCommand\("db", this, nameof\(CmdDuckBot\)\)/);
+  assert.match(source, /using Oxide\.Game\.Rust\.Cui;/);
   assert.doesNotMatch(source, /using\s+\w+\s*=\s*(Rust|Oxide\.Core)\./);
   assert.doesNotMatch(source, /\/tmp\/duckbot_debug/);
+  assert.doesNotMatch(source, /\.Contains\([^;\n]+StringComparison\./);
+  assert.doesNotMatch(source, /\.TakeLast\(/);
+  assert.doesNotMatch(source, /\.Split\(' ', 2\)/);
   assert.equal((source.match(/case "coords"/g) ?? []).length, 1);
   assert.equal((source.match(/case "time": ShowTime\(player, session\); break;/g) ?? []).length, 1);
   assert.match(source, /case "kit_give":\s*HandleMCPKitGive\(message\);/s);

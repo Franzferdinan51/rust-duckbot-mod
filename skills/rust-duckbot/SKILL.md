@@ -24,10 +24,10 @@ When a player chats through `/db ask`, `/db say`, or the DuckBot terminal:
 
 | Role | Allowed Examples |
 | --- | --- |
-| `user` | Chat, view cameras, server status, market listings, basic player lookup |
+| `user` | Chat, view cameras, server status, market listings, basic player lookup, kit list, dice, 8-ball, tips |
 | `vip` | PTZ camera control, security scan, alerts, map markers, base status |
 | `mod` | Activity logs, player moderation, kick |
-| `admin` | Admin commands, ban, lockdown, automation changes |
+| `admin` | Admin commands, RCON commands, kit grants, ban, lockdown, automation changes |
 
 ## Tool Patterns
 
@@ -70,19 +70,32 @@ Map natural names when possible:
 - `rust_add_map_marker(name, position, color, icon, requester_role)`
 - `rust_base_status(player_id)`
 - `rust_market_listings(query)`
+- `rust_list_kits(category)`
 - `rust_list_automation_rules()`
 - `rust_set_automation_rule(rule_id, action, requester_role, admin_token)`
+
+### Fun And Player Help
+
+Safe for normal players:
+
+- `rust_roll_dice(sides, count, player_id, announce)`
+- `rust_8ball(question, player_id, announce)`
+- `rust_player_tip(category, player_id, announce)`
+
+Use `announce: true` only when the player wants the result in-game. Keep fun output short and avoid spamming global chat.
 
 ### Admin
 
 Use only for admins:
 
 - `rust_admin_command(command, requester_id/requester_role, player_name, admin_token)`
+- `rust_rcon_command(command, requester_id/requester_role, player_name, admin_token)`
+- `rust_give_kit(player_id, kit_name, requester_id/requester_role, admin_token)`
 - `rust_kick_player(player_id, reason, requester_id/requester_role)`
 - `rust_ban_player(player_id, reason, duration, requester_id/requester_role, admin_token)`
 - `rust_lockdown(action, reason, requester_id/requester_role, admin_token)`
 
-`rust_admin_command` is whitelisted by the server owner. If it fails, explain that the command is not allowed instead of trying to bypass it.
+`rust_admin_command` and `rust_rcon_command` are whitelisted by the server owner. If one fails, explain that the command is not allowed instead of trying to bypass it.
 
 ## Response Style
 

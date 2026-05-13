@@ -190,6 +190,50 @@ const DEFAULT_KITS: KitDefinition[] = [
   { name: 'admin', displayName: 'Admin Kit', category: 'admin', description: 'Admin-only server kit.', permission: 'rustduckbot.admin', cooldownMinutes: 60, maxUsesPerDay: 2 },
 ];
 
+const EIGHT_BALL_RESPONSES = [
+  'Signs point to yes.',
+  'Bring extra meds first.',
+  'Not unless the counters are asleep.',
+  'The loot room says maybe.',
+  'Ask again after you check upkeep.',
+  'Yes, but depot before you get bold.',
+  'The island is not convinced.',
+  'Absolutely, if you have bags down.',
+];
+
+const PLAYER_TIPS: Record<string, string[]> = {
+  starter: [
+    'Place bags before roaming so a bad fight does not reset your night.',
+    'Stone tools are loud but fast; upgrade your path once you have metal fragments.',
+    'Split loot between a main box and a hidden stash until your base has real doors.',
+  ],
+  base: [
+    'Add an airlock before expanding; one extra door can save the whole base.',
+    'Check tool cupboard upkeep before logging off, especially after upgrading walls.',
+    'Honeycomb the side with your tool cupboard first if resources are tight.',
+  ],
+  combat: [
+    'Take a flank route after firing; players chase the last sound they heard.',
+    'Carry one wall or barricade when roaming with gear you care about.',
+    'Reload before looting. The best loot box on Rust is often the next player.',
+  ],
+  farming: [
+    'Depot when your inventory is half valuable. Greed is a very expensive backpack.',
+    'Use safe zones to recycle early components before roaming deeper.',
+    'Mark rich nodes or barrels for teammates with DuckBot map markers.',
+  ],
+  cctv: [
+    'Use cameras before opening outer doors during raid hours.',
+    'Name cameras by location so the AI can switch feeds quickly under pressure.',
+    'Keep one camera on your approach route and one on the tool cupboard path.',
+  ],
+  admin: [
+    'Use RCON through the whitelist for routine fixes, then audit recent activity.',
+    'Grant kits through DuckBot MCP so the plugin logs who requested it.',
+    'Check player reports and recent chat before using punitive commands.',
+  ],
+};
+
 export const DEFAULT_CONFIG: ServerConfig = {
   stdioEnabled: process.env['MCP_STDIO'] !== '0',
   bridgeEnabled: process.env['RUST_DUCKBOT_BRIDGE'] !== '0',
@@ -245,6 +289,14 @@ function optionalString(args: JsonObject, name: string, fallback = ''): string {
 function optionalNumber(args: JsonObject, name: string, fallback: number): number {
   const value = args[name];
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function boundedInteger(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Math.floor(value)));
+}
+
+function randomItem<T>(items: T[]): T {
+  return items[Math.floor(Math.random() * items.length)] ?? items[0];
 }
 
 function normalizeRole(value: unknown): Role {
@@ -577,6 +629,44 @@ export const ALL_TOOLS = [
     },
   },
   {
+    name: 'rust_roll_dice',
+    description: 'Roll safe in-game dice for giveaways, minigames, disputes, or player fun. Can announce to a player or global chat.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sides: schema.number('Sides per die. Default 100, min 2, max 10000.'),
+        count: schema.number('Number of dice. Default 1, max 20.'),
+        player_id: schema.string('Optional target player Steam ID or name.'),
+        announce: schema.boolean('When true, send the result to Rust chat.'),
+      },
+    },
+  },
+  {
+    name: 'rust_8ball',
+    description: 'Answer a lighthearted Rust question with an 8-ball style response. Can announce to a player or global chat.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        question: schema.string('Player question.'),
+        player_id: schema.string('Optional target player Steam ID or name.'),
+        announce: schema.boolean('When true, send the answer to Rust chat.'),
+      },
+      required: ['question'],
+    },
+  },
+  {
+    name: 'rust_player_tip',
+    description: 'Give a useful Rust tip by category, optionally sending it in-game to a player.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        category: { type: 'string', enum: ['starter', 'base', 'combat', 'farming', 'cctv', 'admin'], description: 'Tip category.' },
+        player_id: schema.string('Optional target player Steam ID or name.'),
+        announce: schema.boolean('When true, send the tip to Rust chat.'),
+      },
+    },
+  },
+  {
     name: 'rust_admin_command',
     description: 'Execute a whitelisted Rust server console/RCON command through the plugin. Requires admin and optional admin_token.',
     inputSchema: {
@@ -697,7 +787,7 @@ export async function handleToolCall(
         role,
         bridgeConnected: state.rustClients.size > 0,
         capabilities: {
-          user: ['chat', 'view_cameras', 'server_status', 'market', 'kit_list'],
+          user: ['chat', 'view_cameras', 'server_status', 'market', 'kit_list', 'dice', '8ball', 'tips'],
           vip: ['ptz_camera_control', 'security_scan', 'alerts', 'markers', 'base_status'],
           mod: ['activity_review', 'player_lookup', 'kick'],
           admin: ['admin_commands', 'ban', 'lockdown', 'automation', 'kit_grants'],
@@ -925,6 +1015,54 @@ export async function handleToolCall(
       const sent = sendToRust(state, { type: 'kit_give', player_id: playerId, kit_name: kit.name, requester_id: optionalString(args, 'requester_id') });
       recordActivity(state, 'kits', 'grant', `${optionalString(args, 'requester_id', 'mcp-admin')} granted ${kit.name} to ${playerId}`, optionalString(args, 'requester_id'), undefined, config.maxHistory);
       return jsonResult({ status: sent ? 'sent_to_rust' : 'queued_no_rust_client', player_id: playerId, kit });
+    }
+
+    case 'rust_roll_dice': {
+      const sides = boundedInteger(optionalNumber(args, 'sides', 100), 2, 10000);
+      const count = boundedInteger(optionalNumber(args, 'count', 1), 1, 20);
+      const rolls = Array.from({ length: count }, () => Math.floor(Math.random() * sides) + 1);
+      const total = rolls.reduce((sum, value) => sum + value, 0);
+      const expression = `${count}d${sides}`;
+      const playerId = optionalString(args, 'player_id');
+      const message = `DuckBot rolled ${expression}: ${rolls.join(', ')}${count > 1 ? ` = ${total}` : ''}`;
+      let status = 'local_only';
+      if (Boolean(args['announce'])) {
+        const sent = sendToRust(state, { type: 'chat_send', message, target: playerId || 'global', sender: 'DuckBot' });
+        status = sent ? 'sent_to_rust' : 'queued_no_rust_client';
+        pushLimited(state.chatHistory, { sender: 'DuckBot', message, target: playerId || 'global', time: nowIso(), isAI: true }, config.maxHistory);
+      }
+      return jsonResult({ status, expression, sides, count, rolls, total, message });
+    }
+
+    case 'rust_8ball': {
+      const question = requiredString(args, 'question');
+      if (!question) return textResult('question is required.', true);
+      const answer = randomItem(EIGHT_BALL_RESPONSES);
+      const playerId = optionalString(args, 'player_id');
+      const message = `DuckBot 8-ball: ${answer}`;
+      let status = 'local_only';
+      if (Boolean(args['announce'])) {
+        const sent = sendToRust(state, { type: 'chat_send', message, target: playerId || 'global', sender: 'DuckBot' });
+        status = sent ? 'sent_to_rust' : 'queued_no_rust_client';
+        pushLimited(state.chatHistory, { sender: 'DuckBot', message, target: playerId || 'global', time: nowIso(), isAI: true }, config.maxHistory);
+      }
+      return jsonResult({ status, question, answer, message });
+    }
+
+    case 'rust_player_tip': {
+      const requestedCategory = requiredString(args, 'category')?.toLowerCase() ?? 'starter';
+      const tips = PLAYER_TIPS[requestedCategory] ?? PLAYER_TIPS['starter'];
+      const category = PLAYER_TIPS[requestedCategory] ? requestedCategory : 'starter';
+      const tip = randomItem(tips);
+      const playerId = optionalString(args, 'player_id');
+      const message = `DuckBot tip: ${tip}`;
+      let status = 'local_only';
+      if (Boolean(args['announce'])) {
+        const sent = sendToRust(state, { type: 'chat_send', message, target: playerId || 'global', sender: 'DuckBot' });
+        status = sent ? 'sent_to_rust' : 'queued_no_rust_client';
+        pushLimited(state.chatHistory, { sender: 'DuckBot', message, target: playerId || 'global', time: nowIso(), isAI: true }, config.maxHistory);
+      }
+      return jsonResult({ status, category, tip, message });
     }
 
     case 'rust_admin_command':

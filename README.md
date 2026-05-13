@@ -1,6 +1,6 @@
 # RustDuckBot
 
-> **v1.4.0** — AI-powered in-game terminal for Rust. Runs with or without an AI agent.
+> **v1.4.1** — AI-powered in-game terminal for Rust. Runs with or without an AI agent.
 
 RustDuckBot turns Rust's computer station into a full interactive AI terminal. When a player sits at a Computer Station item in-game, they get a CUI overlay panel — and every player gets 13 teleport commands, full moderation tools, economy rewards, combat intel, building helpers, and 176+ total commands. Powered by DuckBot, LM Studio, OpenAI, Claude, or OpenRouter.
 
@@ -21,6 +21,7 @@ RustDuckBot turns Rust's computer station into a full interactive AI terminal. W
 - **🔔 Notification system** — night alerts, event subscriptions, notification list/clear
 - **🔐 AI RCON access** — admin-gated MCP/RCON commands with an allowlist on both the MCP bridge and plugin side
 - **🎁 AI kit tools** — agents can list kits and admin-gate kit grants through MCP, while players can use `/db kit` in-game
+- **🎲 AI fun + helper tools** — dice rolls, 8-ball answers, and contextual Rust tips can be sent to players or global chat through the MCP bridge
 
 ---
 
@@ -34,7 +35,7 @@ This is the path to use with [WindowsGSM.RustOxideWithRustEdit](https://github.c
    ```text
    serverfiles\oxide\plugins\RustDuckBot.cs
    ```
-4. Start the server and watch the Oxide console/logs for `RustDuckBot v1.4.0 loaded`.
+4. Start the server and watch the Oxide console/logs for `RustDuckBot v1.4.1 loaded`.
 5. Edit the generated config:
    ```text
    serverfiles\oxide\config\RustDuckBot.json
@@ -104,6 +105,7 @@ Any interchangeable MCP-capable agent can use the tool surface. Regular player f
 | Cameras | `rust_list_cameras`, `rust_view_camera`, `rust_control_camera`, `rust_get_camera_snapshot` |
 | Security | `rust_list_alerts`, `rust_ack_alert`, `rust_security_scan`, `rust_lockdown` |
 | Kits | `rust_list_kits`, `rust_give_kit` |
+| Fun/Guidance | `rust_roll_dice`, `rust_8ball`, `rust_player_tip` |
 | Economy | `rust_market_listings` |
 | Map/Base | `rust_list_map_markers`, `rust_add_map_marker`, `rust_base_status` |
 | Admin/RCON | `rust_admin_command`, `rust_rcon_command`, `rust_kick_player`, `rust_ban_player` |
@@ -196,6 +198,8 @@ set RUST_DUCKBOT_ALLOWED_COMMANDS=status,serverinfo,say,global.say,kick,ban,bani
 On macOS/Linux use `export` instead of `set`. The agent tool is `rust_rcon_command` and still requires an admin player role plus the admin token when configured.
 
 The agent can also use `rust_list_kits` and `rust_give_kit`; kit grants are admin-gated and arrive in the plugin as a `kit_give` bridge message.
+
+Player-safe MCP tools include `rust_roll_dice`, `rust_8ball`, and `rust_player_tip`. They run locally in the MCP server and can optionally announce results through the existing `chat_send` bridge, so they work for minigames, giveaways, quick base advice, or new-player help without needing RCON.
 
 ### 5. Use in-game
 ```
@@ -319,6 +323,7 @@ Full config is written to `oxide/config/RustDuckBot.json` on first load.
 | `daef122` | **v1.3.2** | 10 null-safe MCP calls, merged CanClientMove, version sync |
 | `5d3a6b4` | **v1.3.3** | 13 teleport commands + warmup + home system + back + coords |
 | `d9fb378` | **v1.4.0** | 30 new commands: moderation, economy, combat intel, building, notifications (176+ total commands) |
+| `current` | **v1.4.1** | WindowsGSM `/db` load-path fixes, AI kits, RCON guardrails, dice/8-ball/tips MCP tools |
 
 ---
 

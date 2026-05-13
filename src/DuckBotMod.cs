@@ -1,5 +1,6 @@
 using Oxide.Core.Plugins;
 using Oxide.Core;
+using Oxide.Game.Rust.Cui;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -12,7 +13,7 @@ using UnityEngine;
 
 namespace RustDuckBot
 {
-    [Info("RustDuckBot", "1.3.1", "Duckets")]
+    [Info("RustDuckBot", "1.4.1", "Duckets")]
     [Description("AI-powered computer station with DuckBot. CCTV, security, base management, trading, automation, intel, and more.")]
     public class RustDuckBot : RustPlugin
     {
@@ -368,7 +369,7 @@ namespace RustDuckBot
                     Parent = OVERLAY_NAME,
                     Components = {
                         new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = "1 0.04" },
-                        new CuiTextComponent { Text = "RustDuckBot v1.4.0 | /db help | AI: DuckBot", FontSize = 9, Align = TextAnchor.MiddleCenter, Color = "0.5 0.4 0.2 1" }
+                        new CuiTextComponent { Text = "RustDuckBot v1.4.1 | /db help | AI: DuckBot", FontSize = 9, Align = TextAnchor.MiddleCenter, Color = "0.5 0.4 0.2 1" }
                     }
                 });
 
@@ -856,7 +857,7 @@ namespace RustDuckBot
             InitializeItemPrices();
             InitializeBuildingPlans();
 
-            PrintAsh("<color=#FFD700>RustDuckBot v1.4.0</color> loaded. Computer Station: <color=#00FF00>ENABLED</color> | Chat Panel: <color=#00FF00>ENABLED</color>");
+            PrintAsh("<color=#FFD700>RustDuckBot v1.4.1</color> loaded. Computer Station: <color=#00FF00>ENABLED</color> | Chat Panel: <color=#00FF00>ENABLED</color>");
             var aiMode = _config.AgentProvider == "duckbot" ? $"DuckBot MCP ({_config.AgentConfig})" : $"Local AI: {_config.AgentProvider}";
             PrintAsh($"AI: <color=#FFD700>{aiMode}</color> | MCP: ws://{_config.MCPServerHost}:{_config.MCPServerPort}");
         }
@@ -917,7 +918,7 @@ namespace RustDuckBot
             _radarTimer = new Timer(RadarCallback, null, 10000, 10000);
 
             SendServerStatus();
-            LogActivity("system", "Server initialized", $"RustDuckBot v1.4.0 started. Cameras: {_cameras.Count}");
+            LogActivity("system", "Server initialized", $"RustDuckBot v1.4.1 started. Cameras: {_cameras.Count}");
         }
 
         private void OnPlayerConnected(BasePlayer player)
@@ -1214,7 +1215,7 @@ namespace RustDuckBot
             // Check if any known monument code was entered
             foreach (var code in _monumentCameraCodes)
             {
-                if (cameraId.Contains(code, StringComparison.OrdinalIgnoreCase))
+                if (ContainsIgnoreCase(cameraId, code))
                 {
                     PrintAsh($"[CCTV] Monument camera detected: <color=#00FF00>{code}</color> by {player.displayName}");
                     _ = _agentBridge.SendToAgentAsync(new
@@ -1588,6 +1589,13 @@ namespace RustDuckBot
             return pIdx >= rIdx;
         }
 
+        private bool ContainsIgnoreCase(string value, string search)
+        {
+            return !string.IsNullOrEmpty(value) &&
+                   !string.IsNullOrEmpty(search) &&
+                   value.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
         // =====================================================================
         // MAIN COMMAND HANDLER
         // =====================================================================
@@ -1833,7 +1841,7 @@ namespace RustDuckBot
         private void ShowHelp(BasePlayer player, PlayerSession session)
         {
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
-            PrintToChat(player, "<color=#FFD700>      RUSSDUCKBOT v1.4.0 — HELP</color>");
+            PrintToChat(player, "<color=#FFD700>      RUSSDUCKBOT v1.4.1 — HELP</color>");
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
             PrintToChat(player, "<color=#FFD700>/db terminal</color> — Open AI computer terminal");
             PrintToChat(player, "<color=#FFD700>/db help</color> — Show this help");
@@ -1977,7 +1985,7 @@ namespace RustDuckBot
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
             PrintToChat(player, "<color=#FFD700>      SERVER INFORMATION</color>");
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
-            PrintToChat(player, $"<color=#FFD700>Plugin:</color> RustDuckBot v1.4.0");
+            PrintToChat(player, $"<color=#FFD700>Plugin:</color> RustDuckBot v1.4.1");
             var aiProvider = _config.AgentProvider;
             var aiDetail = aiProvider == "duckbot" ? $"{_config.AgentConfig}" : (aiProvider == "lmstudio" ? $"{_config.LMStudioUrl}/{_config.LMStudioModel}" : _config.OpenAIBaseUrl + "/" + _config.OpenAIModel);
             PrintToChat(player, $"<color=#FFD700>AI Mode:</color> {aiProvider} — {aiDetail}");
@@ -2277,7 +2285,7 @@ namespace RustDuckBot
                 return;
             }
 
-            var target = _trackedPlayers.Values.FirstOrDefault(p => p.DisplayName.Contains(targetName, StringComparison.OrdinalIgnoreCase));
+            var target = _trackedPlayers.Values.FirstOrDefault(p => ContainsIgnoreCase(p.DisplayName, targetName));
             if (target == null) { PrintToChat(player, $"Player not tracked: {targetName}"); return; }
 
             PrintToChat(player, $"<color=#FFD700>═══ THREAT: {target.DisplayName} ═══</color>");
@@ -2378,7 +2386,7 @@ namespace RustDuckBot
         {
             if (!HasRoleOrHigher(session.Role, "vip")) { PrintToChat(player, "<color=#FF4444>VIP+ required</color>"); return; }
 
-            var parts = args.Split(' ', 2);
+            var parts = args.Split(new[] { ' ' }, 2);
             if (parts.Length < 2) { PrintToChat(player, "Usage: /db door <lock_id|position> lock/unlock/open/close"); return; }
 
             var action = parts[1].ToLowerInvariant();
@@ -2416,7 +2424,7 @@ namespace RustDuckBot
         {
             if (!HasRoleOrHigher(session.Role, "vip")) { PrintToChat(player, "<color=#FF4444>VIP+ required</color>"); return; }
 
-            var parts = args.Split(' ', 2);
+            var parts = args.Split(new[] { ' ' }, 2);
             if (parts.Length < 2) { PrintToChat(player, "Usage: /db light <id> on/off/toggle"); return; }
 
             var action = parts[1].ToLowerInvariant();
@@ -2439,7 +2447,7 @@ namespace RustDuckBot
         {
             if (!HasRoleOrHigher(session.Role, "mod")) { PrintToChat(player, "<color=#FF4444>Mod+ required</color>"); return; }
 
-            var parts = args.Split(' ', 2);
+            var parts = args.Split(new[] { ' ' }, 2);
             if (parts.Length < 2) { PrintToChat(player, "Usage: /db turret <id> on/off/whitelist/add/remove"); return; }
 
             PrintToChat(player, $"<color=#FFD700>Turret control:</color> {args}");
@@ -2495,7 +2503,7 @@ namespace RustDuckBot
         private void AuthorizePlayer(BasePlayer player, PlayerSession session, string args)
         {
             if (!HasRoleOrHigher(session.Role, "vip")) { PrintToChat(player, "<color=#FF4444>VIP+ required</color>"); return; }
-            var parts = args.Split(' ', 2);
+            var parts = args.Split(new[] { ' ' }, 2);
             if (parts.Length == 0) { PrintToChat(player, "Usage: /db authorize <steamid> [name]"); return; }
             PrintToChat(player, $"<color=#00FF00>Authorize:</color> {parts[0]}");
             LogActivity("base", "Authorize", $"{player.displayName} authorized {parts[0]}", player.UserIDString, player.displayName);
@@ -2535,7 +2543,7 @@ namespace RustDuckBot
         private void HandleSell(BasePlayer player, PlayerSession session, string args)
         {
             if (!HasRoleOrHigher(session.Role, "user")) { PrintToChat(player, "<color=#FF4444>Login required</color>"); return; }
-            var parts = args.Split(' ', 2);
+            var parts = args.Split(new[] { ' ' }, 2);
             if (parts.Length == 0) { PrintToChat(player, "Usage: /db sell <item_name> <price_per_unit>"); return; }
 
             var itemName = parts[0];
@@ -2562,7 +2570,7 @@ namespace RustDuckBot
             if (!HasRoleOrHigher(session.Role, "user")) { PrintToChat(player, "<color=#FF4444>Login required</color>"); return; }
             if (string.IsNullOrWhiteSpace(args)) { PrintToChat(player, "Usage: /db buy <item_name>"); return; }
 
-            var listing = _shopListings.FirstOrDefault(l => l.Available && l.ItemName.Contains(args, StringComparison.OrdinalIgnoreCase));
+            var listing = _shopListings.FirstOrDefault(l => l.Available && ContainsIgnoreCase(l.ItemName, args));
             if (listing == null) { PrintToChat(player, $"Item not found: {args}"); return; }
 
             PrintToChat(player, $"<color=#FFD700>BUY:</color> {listing.ItemName} @ {listing.PricePerUnit} {listing.Currency}");
@@ -2572,7 +2580,7 @@ namespace RustDuckBot
         {
             if (string.IsNullOrWhiteSpace(itemName)) { PrintToChat(player, "Usage: /db price <item_name>"); return; }
 
-            var listings = _shopListings.Where(l => l.ItemName.Contains(itemName, StringComparison.OrdinalIgnoreCase) && l.Available).ToList();
+            var listings = _shopListings.Where(l => ContainsIgnoreCase(l.ItemName, itemName) && l.Available).ToList();
             if (listings.Count == 0) { PrintToChat(player, $"No prices for: {itemName}"); return; }
 
             var avg = listings.Average(l => l.PricePerUnit);
@@ -2938,7 +2946,7 @@ namespace RustDuckBot
         {
             if (string.IsNullOrWhiteSpace(query)) { PrintToChat(player, "Usage: /db search <query>"); return; }
 
-            var results = _activityLog.Where(a => a.Action.Contains(query, StringComparison.OrdinalIgnoreCase) || a.Details.Contains(query, StringComparison.OrdinalIgnoreCase)).Take(10).ToList();
+            var results = _activityLog.Where(a => ContainsIgnoreCase(a.Action, query) || ContainsIgnoreCase(a.Details, query)).Take(10).ToList();
             PrintToChat(player, $"<color=#FFD700>═══ SEARCH: {query} ({results.Count} results) ═══</color>");
             foreach (var r in results)
                 PrintToChat(player, $"  <color=#888>[{r.Time:MM/dd HH:mm}]</color> {r.Category}: {r.Action} - {r.Details}");
@@ -3028,7 +3036,7 @@ namespace RustDuckBot
 
         private void SendMessage(BasePlayer player, PlayerSession session, string args)
         {
-            var parts = args.Split(' ', 2);
+            var parts = args.Split(new[] { ' ' }, 2);
             if (parts.Length < 2) { PrintToChat(player, "Usage: /db msg <player> <message>"); return; }
             var target = FindPlayer(parts[0]);
             if (target == null) { PrintToChat(player, $"Player not found: {parts[0]}"); return; }
@@ -3175,7 +3183,7 @@ namespace RustDuckBot
         private void HandleTeleport(BasePlayer player, PlayerSession session, string args)
         {
             if (!HasRoleOrHigher(session.Role, "admin")) { PrintToChat(player, "<color=#FF4444>Admin required</color>"); return; }
-            var parts = args.Split(' ', 2);
+            var parts = args.Split(new[] { ' ' }, 2);
             if (parts.Length < 2) { PrintToChat(player, "Usage: /db tp <from_player|loc> <to_player|loc>"); return; }
             var from = FindPlayer(parts[0]);
             var to = FindPlayer(parts[1]);
@@ -3193,7 +3201,7 @@ namespace RustDuckBot
         private void HandleSpawn(BasePlayer player, PlayerSession session, string args)
         {
             if (!HasRoleOrHigher(session.Role, "admin")) { PrintToChat(player, "<color=#FF4444>Admin required</color>"); return; }
-            var parts = args.Split(' ', 2);
+            var parts = args.Split(new[] { ' ' }, 2);
             if (parts.Length == 0) { PrintToChat(player, "Usage: /db spawn <item> [qty]"); return; }
             var qty = parts.Length > 1 && int.TryParse(parts[1], out var q) ? q : 1;
             PrintToChat(player, $"<color=#00FF00>Spawning:</color> {qty}x {parts[0]}");
@@ -3268,7 +3276,7 @@ namespace RustDuckBot
                 PrintToChat(player, "\n<color=#888>/db plan <name> for materials breakdown</color>");
                 return;
             }
-            var plan = _buildingPlans.FirstOrDefault(p => p.Name.Equals(args, StringComparison.OrdinalIgnoreCase) || p.Name.Contains(args, StringComparison.OrdinalIgnoreCase));
+            var plan = _buildingPlans.FirstOrDefault(p => p.Name.Equals(args, StringComparison.OrdinalIgnoreCase) || ContainsIgnoreCase(p.Name, args));
             if (plan == null) { PrintToChat(player, "<color=#FF4444>Unknown plan:</color> " + args); return; }
             PrintToChat(player, "<color=#FFD700>━━━ " + plan.Name.ToUpper() + " ━━━</color>");
             PrintToChat(player, "<color=#888>" + plan.Description + "</color>");
@@ -3410,7 +3418,7 @@ namespace RustDuckBot
             if (string.IsNullOrWhiteSpace(args))
             { PrintToChat(player, "<color=#FFD700>Usage:</color> /db tpr <player> OR /db tpa <player>"); return; }
 
-            var parts = args.Split(' ', 2);
+            var parts = args.Split(new[] { ' ' }, 2);
             var targetName = parts[0].Trim();
             bool goToTarget = parts.Length == 0 || (args.StartsWith("tpr ", StringComparison.OrdinalIgnoreCase) || args.StartsWith("tpa ", StringComparison.OrdinalIgnoreCase));
 
@@ -3558,7 +3566,7 @@ namespace RustDuckBot
             foreach (var h in homes)
             {
                 if (h.Key.Equals(homeName, StringComparison.OrdinalIgnoreCase) ||
-                    h.Key.Contains(homeName, StringComparison.OrdinalIgnoreCase))
+                    ContainsIgnoreCase(h.Key, homeName))
                 { homePos = h.Value; homeName = h.Key; break; }
             }
 
@@ -4221,7 +4229,7 @@ namespace RustDuckBot
                 if (session.Notifications.Count == 0)
                     PrintToChat(player, "<color=#888>No notifications.</color>");
                 else
-                    foreach (var n in session.Notifications.TakeLast(5))
+                    foreach (var n in session.Notifications.Skip(Math.Max(0, session.Notifications.Count - 5)))
                         PrintToChat(player, $"  <color=#4DA6FF>[{n.Type}]</color> {n.Title}: {n.Body}");
                 return;
             }
@@ -4434,7 +4442,7 @@ namespace RustDuckBot
 
         private void UpdateSetting(BasePlayer player, PlayerSession session, string args)
         {
-            var parts = args.Split(' ', 2);
+            var parts = args.Split(new[] { ' ' }, 2);
             if (parts.Length < 2) { PrintToChat(player, "Usage: /db set <key> <value>"); return; }
             var key = parts[0].ToLower();
             var value = parts[1].ToLower();
@@ -4483,7 +4491,7 @@ namespace RustDuckBot
         // MISC
         // =====================================================================
 
-        private void ShowVersion(BasePlayer player) { PrintToChat(player, "<color=#FFD700>RustDuckBot v1.4.0</color> by Duckets | AI: " + (_localAI?.ProviderName ?? _config.AgentProvider) + " MCP Bridge"); }
+        private void ShowVersion(BasePlayer player) { PrintToChat(player, "<color=#FFD700>RustDuckBot v1.4.1</color> by Duckets | AI: " + (_localAI?.ProviderName ?? _config.AgentProvider) + " MCP Bridge"); }
         private void ShowCredits(BasePlayer player) { PrintToChat(player, "Created by <color=#FFD700>Duckets</color> | Powered by <color=#FFD700>DuckBot AI</color>"); }
         private void ShowChangelog(BasePlayer player) { PrintToChat(player, "v1.4.0: Massive feature expansion — 30 new commands across 7 categories"); }
         private void ShowDonateInfo(BasePlayer player) { PrintToChat(player, "Donations help keep the server running! Contact admin."); }
@@ -4565,9 +4573,9 @@ namespace RustDuckBot
         {
             var cam = _cameras.Find(c => c.Id.Equals(idOrName, StringComparison.OrdinalIgnoreCase));
             if (cam != null) return cam;
-            cam = _cameras.Find(c => c.Name.Contains(idOrName, StringComparison.OrdinalIgnoreCase));
+            cam = _cameras.Find(c => ContainsIgnoreCase(c.Name, idOrName));
             if (cam != null) return cam;
-            return _cameras.Find(c => c.Location.Contains(idOrName, StringComparison.OrdinalIgnoreCase));
+            return _cameras.Find(c => ContainsIgnoreCase(c.Location, idOrName));
         }
 
         private CameraInfo GetCameraNear(Vector3 position)
@@ -4655,7 +4663,7 @@ namespace RustDuckBot
             foreach (var p in all)
             {
                 if (p.displayName.Equals(nameOrId, StringComparison.OrdinalIgnoreCase)) return p;
-                if (p.displayName.Contains(nameOrId, StringComparison.OrdinalIgnoreCase)) best = p;
+                if (ContainsIgnoreCase(p.displayName, nameOrId)) best = p;
             }
             return best;
         }
@@ -5823,7 +5831,7 @@ namespace RustDuckBot
             var userMsg = new { role = "user", content = message };
             var msgs = new List<object> { systemMsg, userMsg };
 
-            foreach (var h in history.TakeLast(20))
+            foreach (var h in history.Skip(Math.Max(0, history.Count - 20)))
                 msgs.Add(new { role = h.IsAI ? "assistant" : "user", content = $"{h.Sender}: {h.Message}" });
 
             var body = new { model = _openAiModel, max_tokens = 800, messages = msgs };
@@ -5839,7 +5847,7 @@ namespace RustDuckBot
         private object[] BuildMessages(string message, List<RustDuckBot.ChatEntry> history, string system)
         {
             var msgs = new List<object> { new { role = "system", content = system } };
-            foreach (var h in history.TakeLast(16))
+            foreach (var h in history.Skip(Math.Max(0, history.Count - 16)))
                 msgs.Add(new { role = h.IsAI ? "assistant" : "user", content = $"{h.Sender}: {h.Message}" });
             msgs.Add(new { role = "user", content = message });
             return msgs.ToArray();
