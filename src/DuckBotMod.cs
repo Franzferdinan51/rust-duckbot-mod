@@ -366,7 +366,7 @@ namespace RustDuckBot
                     Parent = OVERLAY_NAME,
                     Components = {
                         new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = "1 0.04" },
-                        new CuiTextComponent { Text = "RustDuckBot v1.3.0 | /db help | AI: DuckBot", FontSize = 9, Align = TextAnchor.MiddleCenter, Color = "0.5 0.4 0.2 1" }
+                        new CuiTextComponent { Text = "RustDuckBot v1.4.0 | /db help | AI: DuckBot", FontSize = 9, Align = TextAnchor.MiddleCenter, Color = "0.5 0.4 0.2 1" }
                     }
                 });
 
@@ -850,7 +850,7 @@ namespace RustDuckBot
             // Initialize monument camera codes
             InitializeMonumentCodes();
 
-            PrintAsh("<color=#FFD700>RustDuckBot v1.3.0</color> loaded. Computer Station: <color=#00FF00>ENABLED</color> | Chat Panel: <color=#00FF00>ENABLED</color>");
+            PrintAsh("<color=#FFD700>RustDuckBot v1.4.0</color> loaded. Computer Station: <color=#00FF00>ENABLED</color> | Chat Panel: <color=#00FF00>ENABLED</color>");
             var aiMode = _config.AgentProvider == "duckbot" ? $"DuckBot MCP ({_config.AgentConfig})" : $"Local AI: {_config.AgentProvider}";
             PrintAsh($"AI: <color=#FFD700>{aiMode}</color> | MCP: ws://{_config.MCPServerHost}:{_config.MCPServerPort}");
         }
@@ -911,7 +911,7 @@ namespace RustDuckBot
             _radarTimer = new Timer(RadarCallback, null, 10000, 10000);
 
             SendServerStatus();
-            LogActivity("system", "Server initialized", $"RustDuckBot v1.3.1 started. Cameras: {_cameras.Count}");
+            LogActivity("system", "Server initialized", $"RustDuckBot v1.4.0 started. Cameras: {_cameras.Count}");
         }
 
         private void OnPlayerConnected(BasePlayer player)
@@ -1806,7 +1806,7 @@ namespace RustDuckBot
         private void ShowHelp(BasePlayer player, PlayerSession session)
         {
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
-            PrintToChat(player, "<color=#FFD700>      RUSSDUCKBOT v1.2.0 — HELP</color>");
+            PrintToChat(player, "<color=#FFD700>      RUSSDUCKBOT v1.4.0 — HELP</color>");
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
             PrintToChat(player, "<color=#FFD700>/db terminal</color> — Open AI computer terminal");
             PrintToChat(player, "<color=#FFD700>/db help</color> — Show this help");
@@ -1950,7 +1950,7 @@ namespace RustDuckBot
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
             PrintToChat(player, "<color=#FFD700>      SERVER INFORMATION</color>");
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
-            PrintToChat(player, $"<color=#FFD700>Plugin:</color> RustDuckBot v1.3.0");
+            PrintToChat(player, $"<color=#FFD700>Plugin:</color> RustDuckBot v1.4.0");
             var aiProvider = _config.AgentProvider;
             var aiDetail = aiProvider == "duckbot" ? $"{_config.AgentConfig}" : (aiProvider == "lmstudio" ? $"{_config.LMStudioUrl}/{_config.LMStudioModel}" : _config.OpenAIBaseUrl + "/" + _config.OpenAIModel);
             PrintToChat(player, $"<color=#FFD700>AI Mode:</color> {aiProvider} — {aiDetail}");
@@ -4270,9 +4270,9 @@ namespace RustDuckBot
         // MISC
         // =====================================================================
 
-        private void ShowVersion(BasePlayer player) { PrintToChat(player, "<color=#FFD700>RustDuckBot v1.3.1</color> by Duckets | AI: " + (_localAI?.ProviderName ?? _config.AgentProvider) + " MCP Bridge"); }
+        private void ShowVersion(BasePlayer player) { PrintToChat(player, "<color=#FFD700>RustDuckBot v1.4.0</color> by Duckets | AI: " + (_localAI?.ProviderName ?? _config.AgentProvider) + " MCP Bridge"); }
         private void ShowCredits(BasePlayer player) { PrintToChat(player, "Created by <color=#FFD700>Duckets</color> | Powered by <color=#FFD700>DuckBot AI</color>"); }
-        private void ShowChangelog(BasePlayer player) { PrintToChat(player, "v1.2.0: Added 50+ commands, automation, security, trading, intel, games"); }
+        private void ShowChangelog(BasePlayer player) { PrintToChat(player, "v1.4.0: Massive feature expansion — 30 new commands across 7 categories"); }
         private void ShowDonateInfo(BasePlayer player) { PrintToChat(player, "Donations help keep the server running! Contact admin."); }
         private void ShowDiscord(BasePlayer player) { PrintToChat(player, "Join our Discord: discord.gg/example"); }
         private void ShowSupport(BasePlayer player) { PrintToChat(player, "Support: Contact admin via Discord | Use /db bug <report> to report issues"); }
