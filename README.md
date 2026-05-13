@@ -1,6 +1,6 @@
 # RustDuckBot
 
-> **v1.4.1** — AI-powered in-game terminal for Rust. Runs with or without an AI agent.
+> **v1.4.2** — AI-powered in-game terminal for Rust. Runs with or without an AI agent.
 
 RustDuckBot turns Rust's computer station into a full interactive AI terminal. When a player sits at a Computer Station item in-game, they get a CUI overlay panel — and every player gets 13 teleport commands, full moderation tools, economy rewards, combat intel, building helpers, and 176+ total commands. Powered by DuckBot, LM Studio, OpenAI, Claude, or OpenRouter.
 
@@ -35,7 +35,7 @@ This is the path to use with [WindowsGSM.RustOxideWithRustEdit](https://github.c
    ```text
    serverfiles\oxide\plugins\RustDuckBot.cs
    ```
-4. Start the server and watch the Oxide console/logs for `RustDuckBot v1.4.1 loaded`.
+4. Start the server and watch the Oxide console/logs for `RustDuckBot v1.4.2 loaded`.
 5. Edit the generated config:
    ```text
    serverfiles\oxide\config\RustDuckBot.json
@@ -323,7 +323,8 @@ Full config is written to `oxide/config/RustDuckBot.json` on first load.
 | `daef122` | **v1.3.2** | 10 null-safe MCP calls, merged CanClientMove, version sync |
 | `5d3a6b4` | **v1.3.3** | 13 teleport commands + warmup + home system + back + coords |
 | `d9fb378` | **v1.4.0** | 30 new commands: moderation, economy, combat intel, building, notifications (176+ total commands) |
-| `current` | **v1.4.1** | WindowsGSM `/db` load-path fixes, AI kits, RCON guardrails, dice/8-ball/tips MCP tools |
+| `7fd7696` | **v1.4.1** | WindowsGSM `/db` load-path fixes, AI kits, RCON guardrails, dice/8-ball/tips MCP tools |
+| `current` | **v1.4.2** | Full `/db` command routing sweep, mute/unmute/bug fixes, older Oxide C# syntax hardening |
 
 ---
 

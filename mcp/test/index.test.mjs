@@ -155,14 +155,48 @@ test('guards the C# /db command path against previous silent-load regressions', 
   const source = readFileSync(resolve(repoRoot, 'src/DuckBotMod.cs'), 'utf8');
   assert.match(source, /cmd\.AddChatCommand\("db", this, nameof\(CmdDuckBot\)\)/);
   assert.match(source, /using Oxide\.Game\.Rust\.Cui;/);
+  assert.doesNotMatch(source, /Subscribe\(nameof\(OnChat\)\)/);
   assert.doesNotMatch(source, /using\s+\w+\s*=\s*(Rust|Oxide\.Core)\./);
   assert.doesNotMatch(source, /\/tmp\/duckbot_debug/);
   assert.doesNotMatch(source, /\.Contains\([^;\n]+StringComparison\./);
   assert.doesNotMatch(source, /\.TakeLast\(/);
   assert.doesNotMatch(source, /\.Split\(' ', 2\)/);
+  assert.doesNotMatch(source, /\?\?=/);
+  assert.doesNotMatch(source, /\bswitch\s*\{/);
+  assert.doesNotMatch(source, /\busing var\b/);
+  assert.doesNotMatch(source, /\bdynamic\?/);
+  assert.doesNotMatch(source, /\bis\s+\w+\s+or\s+\w+/);
+  assert.doesNotMatch(source, /_playerSessions/);
+  assert.match(source, /private void HandleChat\(BasePlayer player, PlayerSession session, string message\)/);
+  assert.match(source, /private void HandleTimeToNight\(BasePlayer player, PlayerSession session\)/);
   assert.equal((source.match(/case "coords"/g) ?? []).length, 1);
   assert.equal((source.match(/case "time": ShowTime\(player, session\); break;/g) ?? []).length, 1);
   assert.match(source, /case "kit_give":\s*HandleMCPKitGive\(message\);/s);
+});
+
+test('guards every main /db command case with a local handler method', () => {
+  const source = readFileSync(resolve(repoRoot, 'src/DuckBotMod.cs'), 'utf8');
+  const commandStart = source.indexOf('private void CmdDuckBot');
+  const helpStart = source.indexOf('// HELP & INFO', commandStart);
+  const commandBody = source.slice(commandStart, helpStart);
+  const definitions = new Set([...source.matchAll(/private\s+(?:[\w<>\[\]\?]+\s+)+([A-Z]\w*)\s*\(/g)].map((match) => match[1]));
+  const handlerCalls = [...commandBody.matchAll(/case\s+"[^"]+"(?::\s*case\s+"[^"]+")*:\s*([A-Z]\w*)\s*\(/g)]
+    .map((match) => match[1])
+    .filter((name) => name !== 'PrintToChat');
+  const missing = [...new Set(handlerCalls.filter((name) => !definitions.has(name)))].sort();
+
+  assert.deepEqual(missing, []);
+});
+
+test('keeps documented /db commands routable', () => {
+  const source = readFileSync(resolve(repoRoot, 'src/DuckBotMod.cs'), 'utf8');
+  const commandLabels = new Set([...source.matchAll(/case\s+"([^"]+)"/g)].map((match) => match[1]));
+  const documented = [...source.matchAll(/\/db\s+([a-zA-Z0-9_]+)/g)]
+    .map((match) => match[1])
+    .filter((command) => command !== 'cmd');
+  const missing = [...new Set(documented.filter((command) => !commandLabels.has(command)))].sort();
+
+  assert.deepEqual(missing, []);
 });
 
 test('queues plugin actions when the Rust websocket bridge is not connected', async () => {

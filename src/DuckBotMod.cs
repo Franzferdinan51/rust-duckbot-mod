@@ -13,7 +13,7 @@ using UnityEngine;
 
 namespace RustDuckBot
 {
-    [Info("RustDuckBot", "1.4.1", "Duckets")]
+    [Info("RustDuckBot", "1.4.2", "Duckets")]
     [Description("AI-powered computer station with DuckBot. CCTV, security, base management, trading, automation, intel, and more.")]
     public class RustDuckBot : RustPlugin
     {
@@ -369,7 +369,7 @@ namespace RustDuckBot
                     Parent = OVERLAY_NAME,
                     Components = {
                         new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = "1 0.04" },
-                        new CuiTextComponent { Text = "RustDuckBot v1.4.1 | /db help | AI: DuckBot", FontSize = 9, Align = TextAnchor.MiddleCenter, Color = "0.5 0.4 0.2 1" }
+                        new CuiTextComponent { Text = "RustDuckBot v1.4.2 | /db help | AI: DuckBot", FontSize = 9, Align = TextAnchor.MiddleCenter, Color = "0.5 0.4 0.2 1" }
                     }
                 });
 
@@ -813,7 +813,7 @@ namespace RustDuckBot
 
         private void Init()
         {
-            _config ??= new ConfigData();
+            if (_config == null) _config = new ConfigData();
             _agentBridge = new AgentBridge(_config.AgentProvider, _config.AgentConfig);
             _localAI = new LocalAIBridge(_config);
             _mcpClient = new MCPClient(_config.MCPServerHost, _config.MCPServerPort, this);
@@ -844,7 +844,7 @@ namespace RustDuckBot
             Subscribe(nameof(OnDoorOpened));
             Subscribe(nameof(OnDoorClosed));
             Subscribe(nameof(OnExplosion));
-            Subscribe(nameof(OnChat));
+            Subscribe(nameof(OnPlayerChat));
             // CCTV / Computer Station hooks
             Subscribe(nameof(OnCCTVCameraUsed));
             Subscribe(nameof(OnComputerStationUse));
@@ -857,7 +857,7 @@ namespace RustDuckBot
             InitializeItemPrices();
             InitializeBuildingPlans();
 
-            PrintAsh("<color=#FFD700>RustDuckBot v1.4.1</color> loaded. Computer Station: <color=#00FF00>ENABLED</color> | Chat Panel: <color=#00FF00>ENABLED</color>");
+            PrintAsh("<color=#FFD700>RustDuckBot v1.4.2</color> loaded. Computer Station: <color=#00FF00>ENABLED</color> | Chat Panel: <color=#00FF00>ENABLED</color>");
             var aiMode = _config.AgentProvider == "duckbot" ? $"DuckBot MCP ({_config.AgentConfig})" : $"Local AI: {_config.AgentProvider}";
             PrintAsh($"AI: <color=#FFD700>{aiMode}</color> | MCP: ws://{_config.MCPServerHost}:{_config.MCPServerPort}");
         }
@@ -918,7 +918,7 @@ namespace RustDuckBot
             _radarTimer = new Timer(RadarCallback, null, 10000, 10000);
 
             SendServerStatus();
-            LogActivity("system", "Server initialized", $"RustDuckBot v1.4.1 started. Cameras: {_cameras.Count}");
+            LogActivity("system", "Server initialized", $"RustDuckBot v1.4.2 started. Cameras: {_cameras.Count}");
         }
 
         private void OnPlayerConnected(BasePlayer player)
@@ -963,6 +963,22 @@ namespace RustDuckBot
 
             _mcpClient?.SendMessage(new { type = "player_left", playerId = player.UserIDString, playerName = player.displayName, reason = reason, time = DateTime.Now.ToString("o") });
             LogActivity("system", "Player disconnected", $"{player.displayName}: {reason}", player.UserIDString, player.displayName);
+        }
+
+        private object OnPlayerChat(BasePlayer player, string message)
+        {
+            if (player == null || string.IsNullOrWhiteSpace(message)) return null;
+            if (message.StartsWith("/", StringComparison.Ordinal)) return null;
+            if (_mutedPlayers.Contains(player.displayName) || _mutedPlayers.Contains(player.UserIDString))
+            {
+                PrintToChat(player, "<color=#FF4444>You are muted.</color>");
+                return false;
+            }
+
+            var session = GetOrCreateSession(player);
+            _mcpClient?.SendMessage(new { type = "player_chat", playerId = player.UserIDString, playerName = player.displayName, role = session.Role, message = message, time = DateTime.Now.ToString("o") });
+            LogActivity("chat", "Player chat", message, player.UserIDString, player.displayName);
+            return null;
         }
 
         private void OnEntityTakeDamage(BaseEntity entity, HitInfo info)
@@ -1596,6 +1612,75 @@ namespace RustDuckBot
                    value.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
+        private string RoleColor(string role)
+        {
+            switch (role)
+            {
+                case "admin": return "#FF4444";
+                case "mod": return "#FF9900";
+                case "vip": return "#00FF00";
+                default: return "#FFD700";
+            }
+        }
+
+        private string SeverityColor(string severity)
+        {
+            switch (severity)
+            {
+                case "critical": return "#FF0000";
+                case "high": return "#FF4444";
+                case "medium": return "#FF9900";
+                default: return "#FFD700";
+            }
+        }
+
+        private string ThreatColor(string threat)
+        {
+            switch (threat)
+            {
+                case "high": return "#FF0000";
+                case "medium": return "#FF9900";
+                case "low": return "#00FF00";
+                default: return "#888";
+            }
+        }
+
+        private string ActivityColor(string category)
+        {
+            switch (category)
+            {
+                case "security": return "#FF6B6B";
+                case "base": return "#9B59B6";
+                case "trade": return "#3498DB";
+                case "system": return "#888";
+                default: return "#FFD700";
+            }
+        }
+
+        private string AccessIcon(string action)
+        {
+            switch (action)
+            {
+                case "enter": return "→";
+                case "exit": return "←";
+                case "view": return "view";
+                case "control": return "ctrl";
+                case "attempt": return "!";
+                default: return "*";
+            }
+        }
+
+        private string BroadcastColor(string type)
+        {
+            switch (type)
+            {
+                case "critical": return "#FF0000";
+                case "warning": return "#FF9900";
+                case "info": return "#00BFFF";
+                default: return "#FFD700";
+            }
+        }
+
         // =====================================================================
         // MAIN COMMAND HANDLER
         // =====================================================================
@@ -1711,6 +1796,8 @@ namespace RustDuckBot
                 case "respawn": HandleRespawn(player, session, argStr); break;
                 case "notes": HandleNotes(player, session, argStr); break;
                 case "adminmsg": HandleAdminMsg(player, session, argStr); break;
+                case "mute": HandleMute(player, session, argStr); break;
+                case "unmute": HandleUnmute(player, session, argStr); break;
                 case "mutelist": HandleMuteList(player, session); break;
 
                 // === ECONOMY ===
@@ -1820,6 +1907,7 @@ namespace RustDuckBot
                 case "donate": ShowDonateInfo(player); break;
                 case "discord": ShowDiscord(player); break;
                 case "support": ShowSupport(player); break;
+                case "bug": HandleBugReport(player, session, argStr); break;
 
                 default:
                     // Treat as AI chat
@@ -1841,7 +1929,7 @@ namespace RustDuckBot
         private void ShowHelp(BasePlayer player, PlayerSession session)
         {
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
-            PrintToChat(player, "<color=#FFD700>      RUSSDUCKBOT v1.4.1 — HELP</color>");
+            PrintToChat(player, "<color=#FFD700>      RUSSDUCKBOT v1.4.2 — HELP</color>");
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
             PrintToChat(player, "<color=#FFD700>/db terminal</color> — Open AI computer terminal");
             PrintToChat(player, "<color=#FFD700>/db help</color> — Show this help");
@@ -1926,6 +2014,7 @@ namespace RustDuckBot
                 PrintToChat(player, "\n<color=#FF9900>━━━ MOD COMMANDS ━━━</color>");
                 PrintToChat(player, "<color=#888>/db kick <player> <reason></color> — Kick player");
                 PrintToChat(player, "<color=#888>/db mute <player></color> — Mute player");
+                PrintToChat(player, "<color=#888>/db unmute <player></color> — Unmute player");
                 PrintToChat(player, "<color=#888>/db freeze <player></color> — Freeze player");
                 PrintToChat(player, "<color=#888>/db msg <player> <msg></color> — Private message");
                 PrintToChat(player, "<color=#888>/db team <msg></color> — Team message");
@@ -1985,7 +2074,7 @@ namespace RustDuckBot
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
             PrintToChat(player, "<color=#FFD700>      SERVER INFORMATION</color>");
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
-            PrintToChat(player, $"<color=#FFD700>Plugin:</color> RustDuckBot v1.4.1");
+            PrintToChat(player, $"<color=#FFD700>Plugin:</color> RustDuckBot v1.4.2");
             var aiProvider = _config.AgentProvider;
             var aiDetail = aiProvider == "duckbot" ? $"{_config.AgentConfig}" : (aiProvider == "lmstudio" ? $"{_config.LMStudioUrl}/{_config.LMStudioModel}" : _config.OpenAIBaseUrl + "/" + _config.OpenAIModel);
             PrintToChat(player, $"<color=#FFD700>AI Mode:</color> {aiProvider} — {aiDetail}");
@@ -2002,7 +2091,7 @@ namespace RustDuckBot
 
         private void WhoAmI(BasePlayer player, PlayerSession session)
         {
-            var roleColor = session.Role switch { "admin" => "#FF4444", "mod" => "#FF9900", "vip" => "#00FF00", _ => "#FFD700" };
+            var roleColor = RoleColor(session.Role);
             var kd = session.Deaths > 0 ? (session.Kills / (float)session.Deaths).ToString("F2") : session.Kills.ToString();
             PrintToChat(player, "<color=#FFD700>═══ WHOAMI ═══</color>");
             PrintToChat(player, $"<color={roleColor}>Role:</color> {session.Role.ToUpper()}");
@@ -2145,7 +2234,7 @@ namespace RustDuckBot
                 PrintToChat(player, "\n<color=#FF4444>Recent Alerts:</color>");
                 foreach (var alert in alerts.Take(5))
                 {
-                    var sevColor = alert.Severity switch { "critical" => "#FF0000", "high" => "#FF4444", "medium" => "#FF9900", _ => "#FFD700" };
+                    var sevColor = SeverityColor(alert.Severity);
                     PrintToChat(player, $"  <color={sevColor}>[{alert.Severity.ToUpper()}]</color> {alert.Title}: {alert.Message}");
                 }
             }
@@ -2186,7 +2275,7 @@ namespace RustDuckBot
 
             foreach (var alert in alerts.OrderByDescending(a => a.Time).Take(20))
             {
-                var sevColor = alert.Severity switch { "critical" => "#FF0000", "high" => "#FF4444", "medium" => "#FF9900", _ => "#FFD700" };
+                var sevColor = SeverityColor(alert.Severity);
                 var ack = alert.Acknowledged ? "✓" : "✗";
                 PrintToChat(player, $"  <color={sevColor}>{ack}[{alert.Severity.ToUpper()}]</color> {alert.Id}: {alert.Title}");
                 PrintToChat(player, $"      <color=#888>{alert.Message}</color> <color=#888>[{alert.Time:HH:mm}]</color>");
@@ -2221,7 +2310,7 @@ namespace RustDuckBot
             foreach (var entry in entries)
             {
                 var successColor = entry.Success ? "#00FF00" : "#FF4444";
-                var icon = entry.Action switch { "enter" => "→", "exit" => "←", "view" => "👁", "control" => "⚙", "attempt" => "⚠", _ => "•" };
+                var icon = AccessIcon(entry.Action);
                 PrintToChat(player, $"  <color={successColor}>{icon}</color> <color=#888>[{entry.Time:HH:mm}]</color> {entry.PlayerName} {entry.Action} {entry.Resource}");
             }
         }
@@ -2279,7 +2368,7 @@ namespace RustDuckBot
                 PrintToChat(player, $"<color=#FFD700>═══ THREAT ASSESSMENT ({threatPlayers.Count}) ═══</color>");
                 foreach (var tp in threatPlayers.Take(20))
                 {
-                    var color = tp.ThreatLevel switch { "high" => "#FF0000", "medium" => "#FF9900", _ => "#FFD700" };
+                    var color = ThreatColor(tp.ThreatLevel);
                     PrintToChat(player, $"  <color={color}>[</color>{tp.ThreatLevel.ToUpper()}<color={color}>]</color> {tp.DisplayName} | K:{tp.Kills} D:{tp.Deaths} | Last seen: {tp.LastSeen:HH:mm}");
                 }
                 return;
@@ -2289,7 +2378,7 @@ namespace RustDuckBot
             if (target == null) { PrintToChat(player, $"Player not tracked: {targetName}"); return; }
 
             PrintToChat(player, $"<color=#FFD700>═══ THREAT: {target.DisplayName} ═══</color>");
-            var tColor = target.ThreatLevel switch { "high" => "#FF0000", "medium" => "#FF9900", "low" => "#00FF00", _ => "#888" };
+            var tColor = ThreatColor(target.ThreatLevel);
             PrintToChat(player, $"<color=#FFD700>Threat Level:</color> <color={tColor}>{target.ThreatLevel.ToUpper()}</color>");
             PrintToChat(player, $"<color=#FFD700>Kills:</color> {target.Kills} | <color=#FFD700>Deaths:</color> {target.Deaths}");
             PrintToChat(player, $"<color=#FFD700>Raids:</color> {target.RaidsParticipated}");
@@ -2650,7 +2739,7 @@ namespace RustDuckBot
                 PrintToChat(player, $"  K/D: {kd}");
                 PrintToChat(player, $"  Sessions: {tracked.SessionCount} | Time: {tracked.TotalOnlineTime.TotalHours:F1}h");
                 PrintToChat(player, $"  Raids: {tracked.RaidsParticipated}");
-                var tColor = tracked.ThreatLevel switch { "high" => "#FF0000", "medium" => "#FF9900", "low" => "#00FF00", _ => "#888" };
+                var tColor = ThreatColor(tracked.ThreatLevel);
                 PrintToChat(player, $"  Threat: <color={tColor}>{tracked.ThreatLevel.ToUpper()}</color>");
             }
         }
@@ -3009,7 +3098,7 @@ namespace RustDuckBot
             PrintToChat(player, $"<color=#FFD700>═══ ACTIVITY LOG ({entries.Count} in {hours}h) ═══</color>");
             foreach (var entry in entries.Take(30))
             {
-                var color = entry.Category switch { "security" => "#FF6B6B", "base" => "#9B59B6", "trade" => "#3498DB", "system" => "#888", _ => "#FFD700" };
+                var color = ActivityColor(entry.Category);
                 PrintToChat(player, $"  <color={color}>[</color>{entry.Time:HH:mm}<color={color}>]</color> {entry.PlayerName ?? "System"}: {entry.Action}");
             }
         }
@@ -3032,6 +3121,15 @@ namespace RustDuckBot
             if (!HasRoleOrHigher(session.Role, "mod")) { PrintToChat(player, "<color=#FF4444>Mod+ required</color>"); return; }
             if (string.IsNullOrWhiteSpace(message)) { PrintToChat(player, "Usage: /db broadcast <message>"); return; }
             BroadcastMessage(player, "BROADCAST", message, "info");
+        }
+
+        private void HandleChat(BasePlayer player, PlayerSession session, string message)
+        {
+            if (string.IsNullOrWhiteSpace(message)) { PrintToChat(player, "Usage: /db say <message>"); return; }
+            session.ChatHistory.Add(new ChatEntry { Sender = player.displayName, Message = message, Time = DateTime.Now });
+            if (session.ChatHistory.Count > _config.MaxChatHistory) session.ChatHistory.RemoveAt(0);
+            PrintToChat(player, $"<color=#FFD700>{player.displayName}:</color> {message}");
+            _mcpClient?.SendMessage(new { type = "player_chat", playerId = player.UserIDString, playerName = player.displayName, role = session.Role, message = message, time = DateTime.Now.ToString("o") });
         }
 
         private void SendMessage(BasePlayer player, PlayerSession session, string args)
@@ -3144,9 +3242,25 @@ namespace RustDuckBot
             if (string.IsNullOrWhiteSpace(targetName)) { PrintToChat(player, "Usage: /db mute <player>"); return; }
             var target = FindPlayer(targetName);
             if (target == null) { PrintToChat(player, $"Player not found: {targetName}"); return; }
-            _mutedPlayers.Add(target.displayName);
+            if (!_mutedPlayers.Contains(target.UserIDString)) _mutedPlayers.Add(target.UserIDString);
             PrintToChat(player, $"<color=#FF9900>Muted:</color> {target.displayName}");
             LogActivity("admin", "Mute", $"{player.displayName} muted {target.displayName}", player.UserIDString, player.displayName);
+        }
+
+        private void HandleUnmute(BasePlayer player, PlayerSession session, string targetName)
+        {
+            if (!HasRoleOrHigher(session.Role, "mod")) { PrintToChat(player, "<color=#FF4444>Mod required</color>"); return; }
+            if (string.IsNullOrWhiteSpace(targetName)) { PrintToChat(player, "Usage: /db unmute <player>"); return; }
+            var target = FindPlayer(targetName);
+            var removed = false;
+            if (target != null)
+            {
+                removed |= _mutedPlayers.Remove(target.UserIDString);
+                removed |= _mutedPlayers.Remove(target.displayName);
+            }
+            removed |= _mutedPlayers.Remove(targetName);
+            PrintToChat(player, removed ? $"<color=#00FF00>Unmuted:</color> {targetName}" : $"No mute found for: {targetName}");
+            LogActivity("admin", "Unmute", $"{player.displayName} unmuted {targetName}", player.UserIDString, player.displayName);
         }
 
         private void HandleFreeze(BasePlayer player, PlayerSession session, string targetName)
@@ -3401,6 +3515,23 @@ namespace RustDuckBot
             PrintToChat(player, $"Time: {hours:D2}:{mins:D2}");
             PrintToChat(player, $"Day: {World.Timeframes.GetValueOrDefault("day", 1)}");
             PrintToChat(player, $"Sun: {(hours >= 6 && hours < 18 ? "☀️" : "🌙")}");
+        }
+
+        private void HandleTimeToNight(BasePlayer player, PlayerSession session)
+        {
+            var time = TODWorld.Timespan;
+            var hours = (int)time.TotalHours % 24;
+            var mins = (int)time.TotalMinutes % 60;
+            var currentMinutes = hours * 60 + mins;
+            const int nightStartMinutes = 18 * 60;
+            const int dayMinutes = 24 * 60;
+            var minutesUntilNight = currentMinutes < nightStartMinutes
+                ? nightStartMinutes - currentMinutes
+                : dayMinutes - currentMinutes + nightStartMinutes;
+
+            PrintToChat(player, "<color=#FFD700>═══ DAY / NIGHT ═══</color>");
+            PrintToChat(player, $"Current time: {hours:D2}:{mins:D2}");
+            PrintToChat(player, $"Night starts in: {minutesUntilNight / 60}h {minutesUntilNight % 60}m");
         }
 
         // =====================================================================
@@ -3970,7 +4101,7 @@ namespace RustDuckBot
         {
             var sortBy = string.IsNullOrWhiteSpace(args) ? "kills" : args.Trim().ToLower();
             PrintToChat(player, $"<color=#FFD700>Top Players ({sortBy})</color>");
-            var allSessions = _playerSessions.Values.OrderByDescending(s =>
+            var allSessions = _sessions.Values.OrderByDescending(s =>
                 sortBy == "playtime" ? s.OnlineTime.TotalMinutes :
                 sortBy == "kd" ? (s.Deaths == 0 ? s.Kills : (float)s.Kills / s.Deaths) : s.Kills
             ).Take(10).ToList();
@@ -3997,7 +4128,7 @@ namespace RustDuckBot
             PlayerSession targetSess = null;
             var targetOnline = FindPlayer(targetName);
             if (targetOnline != null) targetSess = GetOrCreateSession(targetOnline);
-            targetSess = targetSess ?? _playerSessions.Values.FirstOrDefault(s => s.DisplayName.Equals(targetName, StringComparison.OrdinalIgnoreCase));
+            targetSess = targetSess ?? _sessions.Values.FirstOrDefault(s => s.DisplayName.Equals(targetName, StringComparison.OrdinalIgnoreCase));
             if (targetSess == null || targetSess.RecentDeaths.Count == 0)
             { PrintToChat(player, $"<color=#888>No death data for:</color> {targetName}"); return; }
             var d = targetSess.RecentDeaths[0];
@@ -4013,7 +4144,7 @@ namespace RustDuckBot
             PlayerSession targetSess = null;
             var targetOnline = FindPlayer(targetName);
             if (targetOnline != null) targetSess = GetOrCreateSession(targetOnline);
-            targetSess = targetSess ?? _playerSessions.Values.FirstOrDefault(s => s.DisplayName.Equals(targetName, StringComparison.OrdinalIgnoreCase));
+            targetSess = targetSess ?? _sessions.Values.FirstOrDefault(s => s.DisplayName.Equals(targetName, StringComparison.OrdinalIgnoreCase));
             if (targetSess == null || targetSess.RecentDeaths.Count == 0)
             { PrintToChat(player, $"<color=#888>No death data for:</color> {targetName}"); return; }
             var lastKiller = targetSess.RecentDeaths[0].KillerName;
@@ -4491,12 +4622,31 @@ namespace RustDuckBot
         // MISC
         // =====================================================================
 
-        private void ShowVersion(BasePlayer player) { PrintToChat(player, "<color=#FFD700>RustDuckBot v1.4.1</color> by Duckets | AI: " + (_localAI?.ProviderName ?? _config.AgentProvider) + " MCP Bridge"); }
+        private void ShowVersion(BasePlayer player) { PrintToChat(player, "<color=#FFD700>RustDuckBot v1.4.2</color> by Duckets | AI: " + (_localAI?.ProviderName ?? _config.AgentProvider) + " MCP Bridge"); }
         private void ShowCredits(BasePlayer player) { PrintToChat(player, "Created by <color=#FFD700>Duckets</color> | Powered by <color=#FFD700>DuckBot AI</color>"); }
         private void ShowChangelog(BasePlayer player) { PrintToChat(player, "v1.4.0: Massive feature expansion — 30 new commands across 7 categories"); }
         private void ShowDonateInfo(BasePlayer player) { PrintToChat(player, "Donations help keep the server running! Contact admin."); }
         private void ShowDiscord(BasePlayer player) { PrintToChat(player, "Join our Discord: discord.gg/example"); }
         private void ShowSupport(BasePlayer player) { PrintToChat(player, "Support: Contact admin via Discord | Use /db bug <report> to report issues"); }
+
+        private void HandleBugReport(BasePlayer player, PlayerSession session, string report)
+        {
+            if (string.IsNullOrWhiteSpace(report)) { PrintToChat(player, "Usage: /db bug <report>"); return; }
+            var entry = new ReportEntry
+            {
+                Id = Guid.NewGuid().ToString().Substring(0, 8),
+                ReporterId = player.userID,
+                ReporterName = player.displayName,
+                TargetId = 0,
+                TargetName = "RustDuckBot bug",
+                Reason = report,
+                Time = DateTime.Now,
+                Status = "bug"
+            };
+            _reportQueue.Add(entry);
+            PrintToChat(player, $"<color=#00FF88>Bug report submitted.</color> ID: <color=#FFD700>{entry.Id}</color>");
+            LogActivity("system", "Bug report", report, player.UserIDString, player.displayName);
+        }
 
         // =====================================================================
         // CAMERA SYSTEM
@@ -4774,7 +4924,7 @@ namespace RustDuckBot
 
         private void BroadcastMessage(BasePlayer sender, string tag, string message, string type)
         {
-            var color = type switch { "critical" => "#FF0000", "warning" => "#FF9900", "info" => "#00BFFF", _ => "#FFD700" };
+            var color = BroadcastColor(type);
             foreach (var player in BasePlayer.activePlayerList)
                 PrintToChat(player, $"<color={color}>[{tag}]</color> {message}");
 
@@ -5692,9 +5842,10 @@ namespace RustDuckBot
         public static string Serialize(object obj)
         {
             if (obj == null) return "null";
-            if (obj is string s) return $"\"{s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n")}\"";
-            if (obj is bool b) return b ? "true" : "false";
-            if (obj is int or long or short or byte or uint or ulong or ushort or sbyte or float or double or decimal)
+            var stringValue = obj as string;
+            if (stringValue != null) return $"\"{stringValue.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n")}\"";
+            if (obj is bool) return (bool)obj ? "true" : "false";
+            if (obj is int || obj is long || obj is short || obj is byte || obj is uint || obj is ulong || obj is ushort || obj is sbyte || obj is float || obj is double || obj is decimal)
                 return Convert.ToString(obj, CultureInfo.InvariantCulture);
             if (obj is System.Collections.IDictionary dict)
             {
@@ -5761,14 +5912,14 @@ namespace RustDuckBot
         {
             try
             {
-                return _provider switch
+                switch (_provider)
                 {
-                    "lmstudio" => LMPrompt(message, history),
-                    "openai" => OAIPrompt(message, history, _openAiKey, _openAiBase, _openAiModel),
-                    "anthropic" => AnthropicPrompt(message, history),
-                    "openrouter" => OAIPrompt(message, history, _openAiKey, "https://openrouter.ai/api/v1", _openAiModel),
-                    _ => null! // Fall back to DuckBotAgentBridge
-                };
+                    case "lmstudio": return LMPrompt(message, history);
+                    case "openai": return OAIPrompt(message, history, _openAiKey, _openAiBase, _openAiModel);
+                    case "anthropic": return AnthropicPrompt(message, history);
+                    case "openrouter": return OAIPrompt(message, history, _openAiKey, "https://openrouter.ai/api/v1", _openAiModel);
+                    default: return null; // Fall back to DuckBotAgentBridge
+                }
             }
             catch (Exception ex)
             {
@@ -5783,17 +5934,19 @@ namespace RustDuckBot
 
         private string LMPrompt(string message, List<RustDuckBot.ChatEntry> history)
         {
-            using var wb = new System.Net.WebClient();
-            wb.Headers["Content-Type"] = "application/json";
-            if (!string.IsNullOrEmpty(_lmKey))
-                wb.Headers["Authorization"] = $"Bearer {_lmKey}";
+            using (var wb = new System.Net.WebClient())
+            {
+                wb.Headers["Content-Type"] = "application/json";
+                if (!string.IsNullOrEmpty(_lmKey))
+                    wb.Headers["Authorization"] = $"Bearer {_lmKey}";
 
-            var raw = wb.UploadString(ChatCompletionsUrl(_lmUrl), "POST",
-                SimpleJson.Serialize(new { model = _lmModel, messages = BuildMessages(message, history, _systemPrompt), max_tokens = 600, stream = false }));
+                var raw = wb.UploadString(ChatCompletionsUrl(_lmUrl), "POST",
+                    SimpleJson.Serialize(new { model = _lmModel, messages = BuildMessages(message, history, _systemPrompt), max_tokens = 600, stream = false }));
 
-            dynamic? resp = SimpleJson.Deserialize(raw);
-            var content = resp?["choices"]?[0]?["message"]?["content"];
-            return content ?? "No response from local AI.";
+                dynamic resp = SimpleJson.Deserialize(raw);
+                var content = resp?["choices"]?[0]?["message"]?["content"];
+                return content ?? "No response from local AI.";
+            }
         }
 
         // ── OpenAI-compatible ───────────────────────────────────────────────
@@ -5803,16 +5956,18 @@ namespace RustDuckBot
             if (string.IsNullOrEmpty(apiKey))
                 return "⚠ OpenAI API key not configured. Set OpenAIApiKey in config.";
 
-            using var wb = new System.Net.WebClient();
-            wb.Headers["Content-Type"] = "application/json";
-            wb.Headers["Authorization"] = $"Bearer {apiKey}";
+            using (var wb = new System.Net.WebClient())
+            {
+                wb.Headers["Content-Type"] = "application/json";
+                wb.Headers["Authorization"] = $"Bearer {apiKey}";
 
-            var raw = wb.UploadString(ChatCompletionsUrl(baseUrl), "POST",
-                SimpleJson.Serialize(new { model, messages = BuildMessages(message, history, _systemPrompt), max_tokens = 800 }));
+                var raw = wb.UploadString(ChatCompletionsUrl(baseUrl), "POST",
+                    SimpleJson.Serialize(new { model = model, messages = BuildMessages(message, history, _systemPrompt), max_tokens = 800 }));
 
-            dynamic? resp = SimpleJson.Deserialize(raw);
-            var content = resp?["choices"]?[0]?["message"]?["content"];
-            return content ?? "No response from AI.";
+                dynamic resp = SimpleJson.Deserialize(raw);
+                var content = resp?["choices"]?[0]?["message"]?["content"];
+                return content ?? "No response from AI.";
+            }
         }
 
         // ── Anthropic (Claude) ───────────────────────────────────────────────
@@ -5822,24 +5977,26 @@ namespace RustDuckBot
             if (string.IsNullOrEmpty(_openAiKey))
                 return "⚠ Anthropic API key not set as OpenAIApiKey in config.";
 
-            using var wb = new System.Net.WebClient();
-            wb.Headers["Content-Type"] = "application/json";
-            wb.Headers["x-api-key"] = _openAiKey;
-            wb.Headers["anthropic-version"] = "2023-06-01";
+            using (var wb = new System.Net.WebClient())
+            {
+                wb.Headers["Content-Type"] = "application/json";
+                wb.Headers["x-api-key"] = _openAiKey;
+                wb.Headers["anthropic-version"] = "2023-06-01";
 
-            var systemMsg = new { role = "system", content = _systemPrompt };
-            var userMsg = new { role = "user", content = message };
-            var msgs = new List<object> { systemMsg, userMsg };
+                var systemMsg = new { role = "system", content = _systemPrompt };
+                var userMsg = new { role = "user", content = message };
+                var msgs = new List<object> { systemMsg, userMsg };
 
-            foreach (var h in history.Skip(Math.Max(0, history.Count - 20)))
-                msgs.Add(new { role = h.IsAI ? "assistant" : "user", content = $"{h.Sender}: {h.Message}" });
+                foreach (var h in history.Skip(Math.Max(0, history.Count - 20)))
+                    msgs.Add(new { role = h.IsAI ? "assistant" : "user", content = $"{h.Sender}: {h.Message}" });
 
-            var body = new { model = _openAiModel, max_tokens = 800, messages = msgs };
-            var raw = wb.UploadString("https://api.anthropic.com/v1/messages", "POST", SimpleJson.Serialize(body));
+                var body = new { model = _openAiModel, max_tokens = 800, messages = msgs };
+                var raw = wb.UploadString("https://api.anthropic.com/v1/messages", "POST", SimpleJson.Serialize(body));
 
-            dynamic? resp = SimpleJson.Deserialize(raw);
-            var content = resp?["content"]?[0]?["text"];
-            return content ?? "No response from Claude.";
+                dynamic resp = SimpleJson.Deserialize(raw);
+                var content = resp?["content"]?[0]?["text"];
+                return content ?? "No response from Claude.";
+            }
         }
 
         // ── Helpers ─────────────────────────────────────────────────────────
