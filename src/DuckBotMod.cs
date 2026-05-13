@@ -66,6 +66,28 @@ namespace RustDuckBot
             // Monument positions for /town, /bandit
             public float OutpostX = -94.5f, OutpostY = 3.0f, OutpostZ = -55.4f;
             public float BanditX = -222.6f, BanditY = 2.0f, BanditZ = 6.7f;
+            // Moderation
+            public int MaxPlayerNotes = 20;
+            public bool EnableReportSystem = true;
+            public int ReportCooldownMinutes = 5;
+            // AFK / inactivity
+            public int AFKTimeoutMinutes = 10;
+            public int AFKKickMinutes = 30;
+            public bool AutoKickAFK = true;
+            // Economy
+            public bool EnableDailyReward = true;
+            public int DailyRewardScrap = 100;
+            public int DailyRewardRP = 20;
+            public int PlaytimeBonusMinutes = 60; // bonus after N minutes
+            // Notifications
+            public int MaxNotificationsPerPlayer = 50;
+            public bool EnableNightAlert = true;
+            // Combat tracking
+            public int DeathHistoryMax = 10;
+            // Building
+            public int DecayScanRadius = 200;
+            // Messaging
+            public int MaxPrivateMessageLength = 500;
         }
 
         protected override void LoadConfig()
@@ -122,6 +144,8 @@ namespace RustDuckBot
 
         // Activity
         private List<ActivityEntry> _activityLog = new List<ActivityEntry>();
+        private List<ReportEntry> _reportQueue = new List<ReportEntry>();
+        private List<string> _mutedPlayers = new List<string>();
         private Dictionary<string, int> _commandStats = new Dictionary<string, int>();
 
         // Monument world positions for naming cameras by proximity
@@ -453,6 +477,40 @@ namespace RustDuckBot
             public Position3D _teleportDestination;
             public string _teleportReason;
             public Position3D _teleportStartPos;
+            // Moderation / messaging
+            public HashSet<ulong> IgnoredPlayers = new HashSet<ulong>();
+            public DateTime? LastReportSent;
+            public Dictionary<string, string> PlayerNotes = new Dictionary<string, string>(); // noteKey -> note
+            // Playtime / economy
+            public DateTime? LastDailyReward;
+            public TimeSpan TotalPlaytimeToday;
+            public int PlaytimeMinutesToday;
+            // Notifications
+            public List<PlayerNotification> Notifications = new List<PlayerNotification>();
+            public bool IsAFK;
+            public DateTime LastActivity = DateTime.Now;
+            // Death/kill history
+            public List<DeathRecord> RecentDeaths = new List<DeathRecord>();
+        }
+
+        private class PlayerNotification
+        {
+            public string Id;
+            public string Title;
+            public string Body;
+            public DateTime Created;
+            public string Type; // system, raid, decay, trade, admin
+            public bool Read;
+        }
+
+        private class DeathRecord
+        {
+            public DateTime Time;
+            public string KillerName;
+            public ulong KillerId;
+            public string Weapon;
+            public Vector3 Location;
+            public string Monument;
         }
 
         private class ChatEntry
@@ -468,6 +526,7 @@ namespace RustDuckBot
             public bool AlertsEnabled = true;
             public bool RaidAlertsEnabled = true;
             public bool DecayAlertsEnabled = true;
+            public bool NightAlert = false;
             public string AlertChannel = "terminal"; // terminal, chat, both
             public string Theme = "default"; // default, dark, security, industrial
         }
@@ -676,6 +735,20 @@ namespace RustDuckBot
             public Vector3? Location; // for tpa: where the target should teleport to
         }
 
+        private class ReportEntry
+        {
+            public string Id;
+            public ulong ReporterId;
+            public string ReporterName;
+            public ulong TargetId;
+            public string TargetName;
+            public string Reason;
+            public DateTime Time;
+            public string Status; // pending, reviewed, resolved, dismissed
+            public string ReviewedBy;
+            public DateTime? ReviewedAt;
+        }
+
         private class TrackedPlayer
         {
             public string PlayerId;
@@ -751,6 +824,9 @@ namespace RustDuckBot
             permission.RegisterPermission("rustduckbot.trading", this);
             permission.RegisterPermission("rustduckbot.intel", this);
             permission.RegisterPermission("rustduckbot.teleport", this);
+            permission.RegisterPermission("rustduckbot.moderation", this);
+            permission.RegisterPermission("rustduckbot.afk", this);
+            permission.RegisterPermission("rustduckbot.economy", this);
 
             // Chat commands - all under /db
             cmd.AddChatCommand("duckbot", this, nameof(CmdDuckBot));
@@ -1605,10 +1681,47 @@ namespace RustDuckBot
                 case "activity": case "log": ShowActivityLog(player, session, argStr); break;
                 case "history": ShowHistory(player, session); break;
 
+                // === MESSAGING ===
+                case "msg": case "message": case "whisper": HandlePrivateMessage(player, session, argStr); break;
+                case "ignore": HandleIgnore(player, session, argStr); break;
+                case "unignore": HandleUnignore(player, session, argStr); break;
+                case "afk": HandleAFK(player, session); break;
+
+                // === MODERATION ===
+                case "report": HandleReport(player, session, argStr); break;
+                case "slay": HandleSlay(player, session, argStr); break;
+                case "respawn": HandleRespawn(player, session, argStr); break;
+                case "notes": HandleNotes(player, session, argStr); break;
+                case "adminmsg": HandleAdminMsg(player, session, argStr); break;
+                case "mutelist": HandleMuteList(player, session); break;
+
+                // === ECONOMY ===
+                case "daily": HandleDaily(player, session); break;
+                case "playtime": HandlePlaytime(player, session); break;
+                case "top": HandleTop(player, session, argStr); break;
+
+                // === COMBAT / INTEL ===
+                case "death": case "lastdeath": HandleLastDeath(player, session, argStr); break;
+                case "killer": HandleKiller(player, session, argStr); break;
+                case "weapon": HandleWeaponInfo(player, session, argStr); break;
+                case "compare": HandleCompare(player, session, argStr); break;
+                case "loot": HandleLoot(player, session, argStr); break;
+                case "kit": case "kits": HandleKit(player, session, argStr); break;
+
+                // === BUILDING ===
+                case "tc": HandleTC(player, session); break;
+                case "cupsize": HandleCupSize(player, session); break;
+                case "decaycheck": HandleDecayCheck(player, session, argStr); break;
+
+                // === NOTIFICATIONS ===
+                case "night": HandleNightAlert(player, session); break;
+                case "notify": case "notifications": HandleNotifications(player, session, argStr); break;
+                case "subscribe": HandleSubscribe(player, session, argStr); break;
+                case "uptime": HandleUptime(player, session); break;
+
                 // === BROADCAST & MESSAGING ===
                 case "broadcast": case "bc": Broadcast(player, session, argStr); break;
                 case "say": HandleChat(player, session, argStr); break;
-                case "msg": SendMessage(player, session, argStr); break;
                 case "team": HandleTeamMessage(player, session, argStr); break;
 
                 // === ADMIN ===
@@ -1617,7 +1730,6 @@ namespace RustDuckBot
                 case "kick": HandleKick(player, session, argStr); break;
                 case "ban": HandleBan(player, session, argStr); break;
                 case "unban": HandleUnban(player, session, argStr); break;
-                case "mute": HandleMute(player, session, argStr); break;
                 case "freeze": HandleFreeze(player, session, argStr); break;
                 case "heal": HandleHeal(player, session, argStr); break;
                 case "give": HandleGive(player, session, argStr); break;
@@ -1628,7 +1740,7 @@ namespace RustDuckBot
                 case "tpr": case "tpa": HandleTPR(player, session, argStr); break;
                 case "tpc": case "accept": HandleTPC(player, session); break;
                 case "tpd": case "deny": HandleTPD(player, session); break;
-                case "home": case "h": HandleHome(player, session, argStr); break;
+                case "home": HandleHome(player, session, argStr); break;
                 case "sethome": HandleSetHome(player, session, argStr); break;
                 case "removehome": HandleRemoveHome(player, session, argStr); break;
                 case "town": HandleTown(player, session); break;
@@ -1642,13 +1754,10 @@ namespace RustDuckBot
                 case "weather": ShowWeather(player, session); break;
                 case "wipe": ShowWipeInfo(player, session); break;
                 case "monuments": case "monu": ShowMonuments(player, session); break;
-                case "loot": ShowLootInfo(player, session, argStr); break;
                 case "events": ShowActiveEvents(player, session); break;
                 case "recipes": ShowRecipes(player, session, argStr); break;
                 case "research": ShowResearch(player, session, argStr); break;
                 case "blueprint": case "bp": ShowBlueprintInfo(player, session, argStr); break;
-                case "kits": ShowKits(player, session); break;
-                case "kit": RedeemKit(player, session, argStr); break;
 
                 // === AI CHAT ===
                 case "ask": case "ai": HandleAIChat(player, session, argStr); break;
@@ -2999,6 +3108,7 @@ namespace RustDuckBot
             if (string.IsNullOrWhiteSpace(targetName)) { PrintToChat(player, "Usage: /db mute <player>"); return; }
             var target = FindPlayer(targetName);
             if (target == null) { PrintToChat(player, $"Player not found: {targetName}"); return; }
+            _mutedPlayers.Add(target.displayName);
             PrintToChat(player, $"<color=#FF9900>Muted:</color> {target.displayName}");
             LogActivity("admin", "Mute", $"{player.displayName} muted {target.displayName}", player.UserIDString, player.displayName);
         }
@@ -3410,6 +3520,510 @@ namespace RustDuckBot
         }
 
         // Cancel warmup teleport if player moves during countdown — merged into main CanClientMove above
+
+        // =====================================================================
+        // MESSAGING & SOCIAL
+        // =====================================================================
+
+        private void HandlePrivateMessage(BasePlayer player, PlayerSession session, string args)
+        {
+            var parts = SplitArgs(args, 2);
+            var targetName = parts[0].Trim(); var message = parts.Length > 1 ? parts[1].Trim() : "";
+            if (string.IsNullOrEmpty(targetName) || string.IsNullOrEmpty(message))
+            { PrintToChat(player, "<color=#FFD700>Usage:</color> /db msg <player> <message>"); return; }
+            var target = FindPlayer(targetName);
+            if (target == null) { PrintToChat(player, $"<color=#FF4444>Player not found:</color> {targetName}"); return; }
+            if (target == player) { PrintToChat(player, "<color=#FF4444>You can't message yourself.</color>"); return; }
+            var targetSession = GetOrCreateSession(target);
+            if (targetSession.IgnoredPlayers.Contains(player.userID))
+            { PrintToChat(player, $"<color=#FF4444>{target.displayName} is ignoring you.</color>"); return; }
+            var truncatedMsg = message.Length > _config.MaxPrivateMessageLength
+                ? message.Substring(0, _config.MaxPrivateMessageLength) + "..." : message;
+            PrintToChat(target, $"<color=#4DA6FF>[PM] {player.displayName}:</color> {truncatedMsg}");
+            PrintToChat(player, $"<color=#4DA6FF>[PM] to {target.displayName}:</color> {truncatedMsg}");
+        }
+
+        private void HandleIgnore(BasePlayer player, PlayerSession session, string args)
+        {
+            if (string.IsNullOrWhiteSpace(args)) { PrintToChat(player, "<color=#FFD700>Usage:</color> /db ignore <player>"); return; }
+            var target = FindPlayer(args);
+            if (target == null) { PrintToChat(player, $"<color=#FF4444>Player not found:</color> {args}"); return; }
+            if (target == player) { PrintToChat(player, "<color=#FF4444>You can't ignore yourself.</color>"); return; }
+            session.IgnoredPlayers.Add(target.userID);
+            PrintToChat(player, $"<color=#888>Ignoring:</color> {target.displayName}");
+        }
+
+        private void HandleUnignore(BasePlayer player, PlayerSession session, string args)
+        {
+            if (string.IsNullOrWhiteSpace(args)) { PrintToChat(player, "<color=#FFD700>Usage:</color> /db unignore <player>"); return; }
+            var target = FindPlayer(args);
+            if (target == null) { PrintToChat(player, $"<color=#FF4444>Player not found:</color> {args}"); return; }
+            if (session.IgnoredPlayers.Remove(target.userID))
+                PrintToChat(player, $"<color=#00FF88>Stopped ignoring:</color> {target.displayName}");
+            else
+                PrintToChat(player, $"<color=#888>You weren't ignoring:</color> {target.displayName}");
+        }
+
+        private void HandleAFK(BasePlayer player, PlayerSession session)
+        {
+            session.IsAFK = !session.IsAFK;
+            if (session.IsAFK)
+            {
+                session.LastActivity = DateTime.Now;
+                PrintToChat(player, "<color=#FFD700>AFK mode ON</color>");
+            }
+            else
+            {
+                var mins = (DateTime.Now - session.LastActivity).TotalMinutes;
+                PrintToChat(player, $"<color=#00FF88>AFK mode OFF</color> | You were away {mins:F0} min");
+            }
+        }
+
+        private void HandleUptime(BasePlayer player, PlayerSession session)
+        {
+            var uptime = Time.realtimeSinceStartup;
+            var hours = (int)(uptime / 3600);
+            var mins = (int)(uptime / 60) % 60;
+            var secs = (int)uptime % 60;
+            var fps = Math.Round(1.0f / Time.deltaTime, 1);
+            var players = BasePlayer.activePlayerList.Count;
+            PrintToChat(player, "<color=#FFD700>Server Info</color>");
+            PrintToChat(player, $"Uptime: {hours}h {mins}m {secs}s | FPS: {fps}");
+            PrintToChat(player, $"Players online: {players}");
+        }
+
+        private void HandleNightAlert(BasePlayer player, PlayerSession session)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, "rustduckbot.afk") && !HasRoleOrHigher(session.Role, "vip"))
+            { PrintToChat(player, "<color=#FF4444>No permission.</color>"); return; }
+            session.Settings.NightAlert = !session.Settings.NightAlert;
+            PrintToChat(player, $"<color=#FFD700>Night alert:</color> {(session.Settings.NightAlert ? "ON" : "OFF")}");
+        }
+
+        // =====================================================================
+        // MODERATION
+        // =====================================================================
+
+        private void HandleReport(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!_config.EnableReportSystem) { PrintToChat(player, "<color=#FF4444>Report system is disabled.</color>"); return; }
+            var parts = SplitArgs(args, 2);
+            var targetName = parts[0].Trim();
+            var reason = parts.Length > 1 ? parts[1].Trim() : "No reason provided";
+            if (string.IsNullOrEmpty(targetName)) { PrintToChat(player, "<color=#FFD700>Usage:</color> /db report <player> <reason>"); return; }
+            if (session.LastReportSent.HasValue && (DateTime.Now - session.LastReportSent.Value).TotalMinutes < _config.ReportCooldownMinutes)
+            { PrintToChat(player, $"<color=#FF4444>Slow down.</color> Wait {_config.ReportCooldownMinutes - (int)(DateTime.Now - session.LastReportSent.Value).TotalMinutes} min."); return; }
+            var target = FindPlayer(targetName);
+            var report = new ReportEntry {
+                Id = Guid.NewGuid().ToString().Substring(0, 8),
+                ReporterId = player.userID, ReporterName = player.displayName,
+                TargetId = target?.userID ?? 0, TargetName = target?.displayName ?? $"[offline] {targetName}",
+                Reason = reason, Time = DateTime.Now, Status = "pending"
+            };
+            _reportQueue.Add(report);
+            session.LastReportSent = DateTime.Now;
+            PrintToChat(player, $"<color=#00FF88>Report submitted.</color> ID: <color=#FFD700>{report.Id}</color>");
+            foreach (var p in BasePlayer.activePlayerList)
+            {
+                var s = GetOrCreateSession(p);
+                if (s.Role == "admin" || s.Role == "mod")
+                    PrintToChat(p, $"<color=#FF4444>REPORT #{report.Id}:</color> {player.displayName} -> {report.TargetName}: {reason}");
+            }
+        }
+
+        private void HandleSlay(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!HasRoleOrHigher(session.Role, "admin")) { PrintToChat(player, "<color=#FF4444>No permission.</color>"); return; }
+            var parts = SplitArgs(args, 2);
+            var targetName = parts[0].Trim();
+            var reason = parts.Length > 1 ? parts[1].Trim() : "Slain by admin";
+            if (string.IsNullOrEmpty(targetName)) { PrintToChat(player, "<color=#FFD700>Usage:</color> /db slay <player> [reason]"); return; }
+            var target = FindPlayer(targetName);
+            if (target == null) { PrintToChat(player, $"<color=#FF4444>Player not found:</color> {targetName}"); return; }
+            target.Hurt(new HitInfo(target, target, DamageType.Suicide, 9999f));
+            Broadcast(player, session, $"<color=#FF4444>{target.displayName} was slain:</color> {reason}");
+        }
+
+        private void HandleRespawn(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!HasRoleOrHigher(session.Role, "mod")) { PrintToChat(player, "<color=#FF4444>No permission.</color>"); return; }
+            if (string.IsNullOrWhiteSpace(args)) { PrintToChat(player, "<color=#FFD700>Usage:</color> /db respawn <player>"); return; }
+            var target = FindPlayer(args);
+            if (target == null) { PrintToChat(player, $"<color=#FF4444>Player not found:</color> {args}"); return; }
+            target.SendConsoleCommand("respawn");
+            PrintToChat(player, $"<color=#00FF88>Respawned:</color> {target.displayName}");
+        }
+
+        private void HandleNotes(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!HasRoleOrHigher(session.Role, "mod")) { PrintToChat(player, "<color=#FF4444>No permission.</color>"); return; }
+            var parts = SplitArgs(args, 2);
+            var targetName = parts[0].Trim(); var action = parts.Length > 1 ? parts[1].Trim() : "";
+            if (string.IsNullOrEmpty(targetName)) { PrintToChat(player, "<color=#FFD700>Usage:</color> /db notes <player> [view|add <note>|remove <key>|clear]"); return; }
+            var targetOnline = FindPlayer(targetName);
+            PlayerSession targetSession = targetOnline != null ? GetOrCreateSession(targetOnline) : null;
+            if (targetSession == null) { PrintToChat(player, $"<color=#FF4444>No session for:</color> {targetName}"); return; }
+            if (string.IsNullOrEmpty(action) || action == "view")
+            {
+                PrintToChat(player, $"<color=#FFD700>Notes: {targetOnline?.displayName ?? targetName}</color>");
+                if (targetSession.PlayerNotes.Count == 0) PrintToChat(player, "<color=#888>No notes.</color>");
+                else foreach (var kvp in targetSession.PlayerNotes)
+                    PrintToChat(player, $"  <color=#4DA6FF>[{kvp.Key}]</color> {kvp.Value}");
+                return;
+            }
+            if (action.StartsWith("add ", StringComparison.OrdinalIgnoreCase))
+            {
+                var noteText = action.Substring(4);
+                if (string.IsNullOrWhiteSpace(noteText)) { PrintToChat(player, "<color=#FFD700>Usage:</color> /db notes <player> add <note text>"); return; }
+                if (targetSession.PlayerNotes.Count >= _config.MaxPlayerNotes)
+                { PrintToChat(player, $"<color=#FF4444>Note limit ({_config.MaxPlayerNotes}).</color> Remove some first."); return; }
+                var key = DateTime.Now.ToString("HHmm");
+                targetSession.PlayerNotes[key] = $"{noteText} -- {player.displayName} {DateTime.Now:yyyy-MM-dd}";
+                PrintToChat(player, "<color=#00FF88>Note added.</color>");
+                return;
+            }
+            if (action.StartsWith("remove ", StringComparison.OrdinalIgnoreCase))
+            {
+                var key = action.Substring(7).Trim();
+                if (targetSession.PlayerNotes.Remove(key)) PrintToChat(player, "<color=#00FF88>Note removed.</color>");
+                else PrintToChat(player, $"<color=#FF4444>Key not found:</color> {key}");
+                return;
+            }
+            if (action == "clear") { targetSession.PlayerNotes.Clear(); PrintToChat(player, "<color=#00FF88>All notes cleared.</color>"); return; }
+            PrintToChat(player, "<color=#FFD700>Usage:</color> /db notes <player> [view|add <note>|remove <key>|clear]");
+        }
+
+        private void HandleAdminMsg(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!HasRoleOrHigher(session.Role, "mod")) { PrintToChat(player, "<color=#FF4444>No permission.</color>"); return; }
+            var parts = SplitArgs(args, 2);
+            var targetName = parts[0].Trim(); var message = parts.Length > 1 ? parts[1].Trim() : "";
+            if (string.IsNullOrEmpty(targetName) || string.IsNullOrEmpty(message))
+            { PrintToChat(player, "<color=#FFD700>Usage:</color> /db adminmsg <player> <message>"); return; }
+            var target = FindPlayer(targetName);
+            if (target == null) { PrintToChat(player, $"<color=#FF4444>Player not found:</color> {targetName}"); return; }
+            PrintToChat(target, $"<color=#FFD700>[ADMIN]</color> {message}");
+            PrintToChat(player, $"<color=#FFD700>Sent to {target.displayName}:</color> {message}");
+        }
+
+        private void HandleMuteList(BasePlayer player, PlayerSession session)
+        {
+            if (!HasRoleOrHigher(session.Role, "mod")) { PrintToChat(player, "<color=#FF4444>No permission.</color>"); return; }
+            PrintToChat(player, "<color=#FFD700>Muted Players</color>");
+            if (_mutedPlayers.Count == 0) PrintToChat(player, "<color=#888>No one muted.</color>");
+            else foreach (var entry in _mutedPlayers) PrintToChat(player, $"  * {entry}");
+        }
+
+        // =====================================================================
+        // ECONOMY & REWARDS
+        // =====================================================================
+
+        private void HandleDaily(BasePlayer player, PlayerSession session)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, "rustduckbot.economy") && !HasRoleOrHigher(session.Role, "vip"))
+            { PrintToChat(player, "<color=#FF4444>No permission.</color>"); return; }
+            if (!_config.EnableDailyReward) { PrintToChat(player, "<color=#FF4444>Daily reward is disabled.</color>"); return; }
+            if (session.LastDailyReward.HasValue)
+            {
+                var next = session.LastDailyReward.Value.AddHours(20);
+                if (DateTime.Now < next) { var r = next - DateTime.Now; PrintToChat(player, $"<color=#888>Next reward in:</color> {r.Hours}h {r.Minutes}m"); return; }
+            }
+            session.LastDailyReward = DateTime.Now;
+            if (_config.DailyRewardScrap > 0)
+                ConsoleSystemRun.ServerCommand($" scavenger.additem "{player.UserIDString}" scrap {_config.DailyRewardScrap}");
+            PrintToChat(player, "<color=#FFD700>Daily Reward</color>");
+            PrintToChat(player, $"<color=#00FF88>+{_config.DailyRewardScrap} scrap</color>");
+            if (_config.DailyRewardRP > 0) PrintToChat(player, $"<color=#4DA6FF>+{_config.DailyRewardRP} RP</color>");
+            PrintToChat(player, "<color=#888>Come back tomorrow!</color>");
+        }
+
+        private void HandlePlaytime(BasePlayer player, PlayerSession session)
+        {
+            var sessionDur = DateTime.Now - session.SessionStart;
+            var todayTotal = session.PlaytimeMinutesToday + (int)sessionDur.TotalMinutes;
+            PrintToChat(player, "<color=#FFD700>Playtime</color>");
+            PrintToChat(player, $"Session: {sessionDur.Hours}h {sessionDur.Minutes}m");
+            PrintToChat(player, $"Today: {todayTotal / 60}h {todayTotal % 60}m");
+            PrintToChat(player, $"Total: {session.OnlineTime.Hours}h {session.OnlineTime.Minutes}m");
+            if (todayTotal >= _config.PlaytimeBonusMinutes && _config.DailyRewardScrap > 0)
+                PrintToChat(player, $"<color=#FFD700>+ {todayTotal/60}h today!</color> Claim: <color=#FFD700>/db daily</color>");
+        }
+
+        private void HandleTop(BasePlayer player, PlayerSession session, string args)
+        {
+            var sortBy = string.IsNullOrWhiteSpace(args) ? "kills" : args.Trim().ToLower();
+            PrintToChat(player, $"<color=#FFD700>Top Players ({sortBy})</color>");
+            var allSessions = _playerSessions.Values.OrderByDescending(s =>
+                sortBy == "playtime" ? s.OnlineTime.TotalMinutes :
+                sortBy == "kd" ? (s.Deaths == 0 ? s.Kills : (float)s.Kills / s.Deaths) : s.Kills
+            ).Take(10).ToList();
+            if (allSessions.Count == 0) { PrintToChat(player, "<color=#888>No data yet.</color>"); return; }
+            int rank = 1;
+            foreach (var s in allSessions)
+            {
+                var name = s.DisplayName.Length > 14 ? s.DisplayName.Substring(0, 12) + ".." : s.DisplayName;
+                var val = sortBy == "playtime" ? $"{s.OnlineTime.TotalHours:F0}h" :
+                          sortBy == "kd" ? $"{(s.Deaths == 0 ? s.Kills : (float)s.Kills / s.Deaths):F2}" : $"{s.Kills} kills";
+                var medal = rank == 1 ? "1st" : rank == 2 ? "2nd" : rank == 3 ? "3rd" : $"#{rank}";
+                PrintToChat(player, $"  {medal}: <color=#4DA6FF>{name}</color>: {val}");
+                rank++;
+            }
+        }
+
+        // =====================================================================
+        // COMBAT & INTEL
+        // =====================================================================
+
+        private void HandleLastDeath(BasePlayer player, PlayerSession session, string args)
+        {
+            var targetName = string.IsNullOrWhiteSpace(args) ? player.displayName : args.Trim();
+            PlayerSession targetSess = null;
+            var targetOnline = FindPlayer(targetName);
+            if (targetOnline != null) targetSess = GetOrCreateSession(targetOnline);
+            targetSess = targetSess ?? _playerSessions.Values.FirstOrDefault(s => s.DisplayName.Equals(targetName, StringComparison.OrdinalIgnoreCase));
+            if (targetSess == null || targetSess.RecentDeaths.Count == 0)
+            { PrintToChat(player, $"<color=#888>No death data for:</color> {targetName}"); return; }
+            var d = targetSess.RecentDeaths[0];
+            PrintToChat(player, $"<color=#FFD700>Last Death: {targetSess.DisplayName}</color>");
+            PrintToChat(player, $"Killer: {d.KillerName}");
+            if (!string.IsNullOrEmpty(d.Weapon)) PrintToChat(player, $"Weapon: {d.Weapon}");
+            PrintToChat(player, $"Location: {d.Monument} ({GetLocation(d.Location)})");
+        }
+
+        private void HandleKiller(BasePlayer player, PlayerSession session, string args)
+        {
+            var targetName = string.IsNullOrWhiteSpace(args) ? player.displayName : args.Trim();
+            PlayerSession targetSess = null;
+            var targetOnline = FindPlayer(targetName);
+            if (targetOnline != null) targetSess = GetOrCreateSession(targetOnline);
+            targetSess = targetSess ?? _playerSessions.Values.FirstOrDefault(s => s.DisplayName.Equals(targetName, StringComparison.OrdinalIgnoreCase));
+            if (targetSess == null || targetSess.RecentDeaths.Count == 0)
+            { PrintToChat(player, $"<color=#888>No death data for:</color> {targetName}"); return; }
+            var lastKiller = targetSess.RecentDeaths[0].KillerName;
+            var lastWeapon = targetSess.RecentDeaths[0].Weapon;
+            var killCount = targetSess.RecentDeaths.Count(d => d.KillerName == lastKiller);
+            PrintToChat(player, "<color=#FFD700>Killer Info</color>");
+            PrintToChat(player, $"Last killed by: {lastKiller}");
+            if (!string.IsNullOrEmpty(lastWeapon)) PrintToChat(player, $"Weapon: {lastWeapon}");
+            PrintToChat(player, $"They've killed {targetSess.DisplayName} {killCount}x recently.");
+        }
+
+        private void HandleWeaponInfo(BasePlayer player, PlayerSession session, string args)
+        {
+            if (string.IsNullOrWhiteSpace(args)) { PrintToChat(player, "<color=#FFD700>Usage:</color> /db weapon <name>"); return; }
+            var weaponName = args.ToLower().Trim();
+            var weapons = new Dictionary<string, (string dmg, string rpm, string mag, string range)> {
+                { "ak47", ("32", "600", "30", "Med-Long") },
+                { "mp5a4", ("22", "750", "30", "Short-Med") },
+                { "thompson", ("27", "480", "40", "Short-Med") },
+                { "python", ("48", "72", "6", "Medium") },
+                { "m249", ("42", "600", "100", "Long") },
+                { "l96", ("85", "41", "10", "V.Long") },
+                { "awp", ("110", "55", "10", "V.Long") },
+                { "nailgun", ("15", "300", "20", "Short") },
+                { "crossbow", ("45", "25", "1", "Long") },
+                { "eoka", ("25x6", "50", "1", "V.Short") },
+                { "shotgun", ("25x8", "55", "8", "Short") },
+                { "sarquebus", ("70", "30", "1", "Long") },
+                { "sar", ("30", "240", "25", "Medium") },
+                { "revolver", ("40", "70", "8", "Medium") },
+                { "semi", ("28", "200", "15", "Medium") },
+                { "smg", ("23", "600", "30", "Short") },
+            };
+            var match = weapons.Keys.FirstOrDefault(k => k.Contains(weaponName) || weaponName.Contains(k));
+            if (match == null)
+            { PrintToChat(player, $"<color=#FF4444>Unknown weapon:</color> {args}"); return; }
+            var w = weapons[match];
+            PrintToChat(player, $"<color=#FFD700>{match.ToUpper()}</color>");
+            PrintToChat(player, $"Dmg:{w.dmg} RPM:{w.rpm} Mag:{w.mag} Range:{w.range}");
+        }
+
+        private void HandleCompare(BasePlayer player, PlayerSession session, string args)
+        {
+            var parts = SplitArgs(args, 2);
+            var item1 = parts.Length > 0 ? parts[0].Trim() : "";
+            var item2 = parts.Length > 1 ? parts[1].Trim() : "";
+            if (string.IsNullOrEmpty(item1) || string.IsNullOrEmpty(item2))
+            { PrintToChat(player, "<color=#FFD700>Usage:</color> /db compare <item1> <item2>"); return; }
+            var items = new Dictionary<string, string> {
+                { "ak47", "Dmg:32 | RPM:600 | Mag:30 | Range:Med" },
+                { "mp5a4", "Dmg:22 | RPM:750 | Mag:30 | Range:Short" },
+                { "thompson", "Dmg:27 | RPM:480 | Mag:40 | Range:Short" },
+                { "m249", "Dmg:42 | RPM:600 | Mag:100 | Range:Long" },
+                { "l96", "Dmg:85 | RPM:41 | Mag:10 | Range:V.Long" },
+                { "c4", "Dmg:450 | Radius:8m | Fuse:10s | Static" },
+                { "rocket", "Dmg:350 | Radius:12m | Thrown | Self-propelled" },
+                { "hazmat", "Armor:35 | Cold/Fire resist | No rad block" },
+                { "metal", "Armor:40 | High bullet resist | Heavy" },
+                { "kevlar", "Armor:35 | Medium resist | Lighter" },
+            };
+            var i1 = items.Keys.FirstOrDefault(k => k.Contains(item1) || item1.Contains(k));
+            var i2 = items.Keys.FirstOrDefault(k => k.Contains(item2) || item2.Contains(k));
+            if (i1 == null) { PrintToChat(player, $"<color=#FF4444>Unknown:</color> {item1}"); return; }
+            if (i2 == null) { PrintToChat(player, $"<color=#FF4444>Unknown:</color> {item2}"); return; }
+            if (i1 == i2) { PrintToChat(player, "<color=#FF4444>Compare two different items.</color>"); return; }
+            PrintToChat(player, "<color=#FFD700>Compare</color>");
+            PrintToChat(player, $"<color=#4DA6FF>{i1.ToUpper()}:</color> {items[i1]}");
+            PrintToChat(player, $"<color=#4DA6FF>{i2.ToUpper()}:</color> {items[i2]}");
+        }
+
+        private void HandleLoot(BasePlayer player, PlayerSession session, string args)
+        {
+            if (string.IsNullOrWhiteSpace(args)) { PrintToChat(player, "<color=#FFD700>Usage:</color> /db loot <item>"); return; }
+            var item = args.ToLower().Trim();
+            var lootData = new Dictionary<string, string[]> {
+                { "hqx", new[] { "Dome", "Airfield", "Oil Rig" } },
+                { "metal", new[] { "Power Plant", "Water Treatment", "Dome" } },
+                { "scrap", new[] { "Junkyard", "Train Yard", "Sewer Branch" } },
+                { "c4", new[] { "Dome", "Oil Rig", "Military Tunnels" } },
+                { "explosives", new[] { "Dome", "Airfield", "Oil Rig" } },
+                { "sulfur", new[] { "Outpost", "Bandit Camp", "Mining Outpost" } },
+                { "gunpowder", new[] { "Dome", "Military Tunnels", "Train Yard" } },
+                { "comp", new[] { "Power Plant", "Water Treatment", "Oil Rig" } },
+                { "electronics", new[] { "Power Plant", "Dome", "Arctic Base" } },
+                { "fuel", new[] { "Gas Station", "Oil Rig", "Bandit Camp" } },
+                { "medkit", new[] { "Dome", "Airfield", "Arctic Base", "Bandit" } },
+                { "bandage", new[] { "Dome", "Airfield", "Gas Station", "Outpost" } },
+                { "code", new[] { "Satellite Dish", "Dome", "Power Plant" } },
+            };
+            var match = lootData.Keys.FirstOrDefault(k => k.Contains(item) || item.Contains(k));
+            if (match != null)
+            {
+                PrintToChat(player, $"<color=#FFD700>Loot: {match.ToUpper()}</color>");
+                foreach (var loc in lootData[match]) PrintToChat(player, $"  * {loc}");
+            }
+            else
+            {
+                PrintToChat(player, "<color=#FFD700>Monuments</color>");
+                PrintToChat(player, "Dome: Elite, tech | Airfield: Military | Oil Rig: Elite");
+                PrintToChat(player, "Power Plant: Elec comp | Train Yard: Junk, scrap");
+                PrintToChat(player, "Outpost: Basic | Bandit: Fuel, meds | Arctic: Tech");
+            }
+        }
+
+        private void HandleKit(BasePlayer player, PlayerSession session, string args)
+        {
+            var parts = SplitArgs(args, 2);
+            var kitName = parts.Length > 0 ? parts[0].Trim().ToLower() : "";
+            var kitList = new[] { "starter", "pvp", "building", "mini" };
+            if (string.IsNullOrEmpty(kitName))
+            {
+                PrintToChat(player, "<color=#FFD700>Available Kits</color>");
+                foreach (var k in kitList) PrintToChat(player, $"  * <color=#4DA6FF>{k}</color>");
+                PrintToChat(player, "<color=#888>Use /db kit <name> to redeem</color>");
+                return;
+            }
+            var match = kitList.FirstOrDefault(k => k.Contains(kitName) || kitName.Contains(k));
+            if (match == null) { PrintToChat(player, $"<color=#FF4444>Unknown kit:</color> {kitName}"); return; }
+            PrintToChat(player, $"<color=#00FF88>Redeeming kit:</color> {match}");
+            ConsoleSystemRun.ServerCommand($"kit give {match} {player.UserIDString}");
+        }
+
+        // =====================================================================
+        // BUILDING & BASE
+        // =====================================================================
+
+        private void HandleTC(BasePlayer player, PlayerSession session)
+        {
+            var pos = player.transform.position;
+            var tcList = new List<string>();
+            foreach (var e in BaseEntity.saveList)
+            {
+                if (e is BuildingPrivlidge tc && Vector3.Distance(tc.transform.position, pos) < 200f)
+                {
+                    var dist = Vector3.Distance(tc.transform.position, pos);
+                    var auth = tc.authorizedPlayers.Select(a => a.username).ToList();
+                    tcList.Add($"* TC @ {GetLocation(tc.transform.position)} | Auth:{auth.Count} | {dist:F0}m");
+                    if (tcList.Count >= 5) break;
+                }
+            }
+            PrintToChat(player, "<color=#FFD700>TC Nearby (200m)</color>");
+            if (tcList.Count == 0) PrintToChat(player, "<color=#888>No TC found nearby.</color>");
+            else foreach (var tc in tcList) PrintToChat(player, tc);
+        }
+
+        private void HandleCupSize(BasePlayer player, PlayerSession session)
+        {
+            var pos = player.transform.position;
+            var nearbyTCs = 0;
+            foreach (var e in BaseEntity.saveList)
+                if (e is BuildingPrivlidge tc && Vector3.Distance(tc.transform.position, pos) < 42f)
+                    nearbyTCs++;
+            PrintToChat(player, "<color=#FFD700>Cupboard Coverage</color>");
+            PrintToChat(player, $"Your position: {GetLocation(pos)}");
+            PrintToChat(player, $"<color=#4DA6FF>TCs within 42m:</color> {nearbyTCs}");
+            if (nearbyTCs == 0)
+                PrintToChat(player, "<color=#FF4444>No TC coverage! Add a cupboard.</color>");
+            else if (nearbyTCs == 1)
+                PrintToChat(player, "<color=#00FF88>One TC covers this area.</color>");
+            else
+                PrintToChat(player, $"<color=#FFD700>Multiple TC coverage ({nearbyTCs} TCs).</color>");
+        }
+
+        private void HandleDecayCheck(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, "rustduckbot.intel") && !HasRoleOrHigher(session.Role, "vip"))
+            { PrintToChat(player, "<color=#FF4444>No permission.</color>"); return; }
+            var pos = player.transform.position;
+            var radius = _config.DecayScanRadius;
+            var count = 0;
+            foreach (var e in BaseEntity.saveList)
+            {
+                if (e is BuildingBlock b && Vector3.Distance(b.transform.position, pos) < radius)
+                    count++;
+                if (count >= 20) break;
+            }
+            PrintToChat(player, "<color=#FFD700>Decay Scan</color>");
+            PrintToChat(player, $"Scanned {radius}m radius from {GetLocation(pos)}");
+            PrintToChat(player, $"<color=#4DA6FF>Structures found:</color> {count} (up to 20 shown)");
+            if (count >= 20) PrintToChat(player, "<color=#888>More structures exist beyond limit.</color>");
+        }
+
+        private void HandleNotifications(BasePlayer player, PlayerSession session, string args)
+        {
+            if (string.IsNullOrWhiteSpace(args) || args.Trim() == "list")
+            {
+                PrintToChat(player, "<color=#FFD700>Notifications</color>");
+                var unread = session.Notifications.Count(n => !n.Read);
+                PrintToChat(player, $"Unread: <color=#FFD700>{unread}</color> | Total: {session.Notifications.Count}");
+                if (session.Notifications.Count == 0)
+                    PrintToChat(player, "<color=#888>No notifications.</color>");
+                else
+                    foreach (var n in session.Notifications.TakeLast(5))
+                        PrintToChat(player, $"  <color=#4DA6FF>[{n.Type}]</color> {n.Title}: {n.Body}");
+                return;
+            }
+            if (args.Trim() == "clear")
+            { session.Notifications.Clear(); PrintToChat(player, "<color=#00FF88>Notifications cleared.</color>"); return; }
+            PrintToChat(player, "<color=#FFD700>Usage:</color> /db notify [list|clear]");
+        }
+
+        private void HandleSubscribe(BasePlayer player, PlayerSession session, string args)
+        {
+            var eventName = args.Trim().ToLower();
+            if (string.IsNullOrEmpty(eventName))
+            {
+                PrintToChat(player, "<color=#FFD700>Subscriptions</color>");
+                PrintToChat(player, "Available: <color=#4DA6FF>night</color>, <color=#4DA6FF>raid</color>, <color=#4DA6FF>decay</color>, <color=#4DA6FF>events</color>");
+                PrintToChat(player, "Usage: <color=#FFD700>/db subscribe <event></color>");
+                return;
+            }
+            var validEvents = new[] { "night", "raid", "decay", "events" };
+            if (Array.IndexOf(validEvents, eventName) < 0)
+            { PrintToChat(player, $"<color=#FF4444>Unknown event:</color> {eventName}"); return; }
+            var existing = session.Notifications.FirstOrDefault(n => n.Type == eventName + "_sub");
+            if (existing != null)
+            { PrintToChat(player, $"<color=#888>Already subscribed to:</color> {eventName}"); return; }
+            session.Notifications.Add(new PlayerNotification {
+                Id = Guid.NewGuid().ToString().Substring(0, 8),
+                Title = $"Subscribed: {eventName}",
+                Body = $"You will receive alerts for: {eventName}",
+                Created = DateTime.Now,
+                Type = eventName + "_sub",
+                Read = false
+            });
+            PrintToChat(player, $"<color=#00FF88>Subscribed to:</color> {eventName}");
+        }
 
         private void ShowWeather(BasePlayer player, PlayerSession session)
         {
