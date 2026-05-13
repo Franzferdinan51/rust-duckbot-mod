@@ -1,0 +1,23 @@
+{
+  "name": "rust-duckbot-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for RustDuckBot mod - bridges AI agents to Rust game",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch",
+    "test": "npm run build && node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "dotenv": "^16.4.0",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.3.0"
+  }
+}

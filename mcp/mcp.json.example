@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "rust-duckbot": {
+      "command": "node",
+      "args": ["/full/path/to/rust-duckbot-mod/mcp/dist/index.js"],
+      "env": {
+        "RUST_DUCKBOT_BRIDGE_HOST": "127.0.0.1",
+        "RUST_DUCKBOT_BRIDGE_PORT": "3851",
+        "RUST_DUCKBOT_ADMIN_TOKEN": "change-me",
+        "RUST_DUCKBOT_ALLOWED_COMMANDS": "status,serverinfo,kick,ban,unban,say,global.say"
+      }
+    }
+  }
+}

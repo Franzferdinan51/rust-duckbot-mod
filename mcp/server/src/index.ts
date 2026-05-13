@@ -1,0 +1,1308 @@
+import { createServer } from 'node:http';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import {
+  CallToolRequestSchema,
+  GetPromptRequestSchema,
+  ListPromptsRequestSchema,
+  ListResourcesRequestSchema,
+  ListToolsRequestSchema,
+  ReadResourceRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
+import { WebSocket, WebSocketServer } from 'ws';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const VERSION = '1.3.0';
+
+type Role = 'user' | 'vip' | 'mod' | 'admin';
+type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+type JsonObject = Record<string, unknown>;
+
+interface ServerConfig {
+  stdioEnabled: boolean;
+  bridgeEnabled: boolean;
+  bridgeHost: string;
+  bridgePort: number;
+  logLevel: LogLevel;
+  seedDemoData: boolean;
+  maxHistory: number;
+  adminToken?: string;
+  allowedAdminCommands: string[];
+}
+
+interface CameraState {
+  id: string;
+  name: string;
+  location: string;
+  monument?: string;
+  online: boolean;
+  hasPower: boolean;
+  isPTZ: boolean;
+  viewCount?: number;
+  lastActivity?: string;
+}
+
+interface PlayerState {
+  id: string;
+  name: string;
+  role: Role;
+  ping?: number;
+  connectedAt?: string;
+  currentCamera?: string;
+  online?: boolean;
+  position?: string;
+}
+
+interface ServerStatus {
+  uptime: string;
+  fps: number;
+  players: number;
+  sleeping?: number;
+  cameras: number;
+  alerts: number;
+  memoryMB?: number;
+  mcpConnected: boolean;
+  rconConnected?: boolean;
+  lastUpdated: string;
+}
+
+interface ChatMessage {
+  playerId?: string;
+  playerName?: string;
+  sender: string;
+  message: string;
+  time: string;
+  role?: Role;
+  target?: string;
+  isAI?: boolean;
+}
+
+interface AlertState {
+  id: string;
+  type: string;
+  severity: 'low' | 'medium' | 'high' | 'critical' | string;
+  title: string;
+  message: string;
+  time: string;
+  acknowledged?: boolean;
+  acknowledgedBy?: string;
+  location?: string;
+}
+
+interface ActivityState {
+  time: string;
+  category: string;
+  action: string;
+  details: string;
+  playerId?: string;
+  playerName?: string;
+}
+
+interface MapMarker {
+  id: string;
+  name: string;
+  position: string;
+  color?: string;
+  icon?: string;
+  ownerId?: string;
+  visible?: boolean;
+}
+
+interface AutomationRule {
+  id: string;
+  name: string;
+  trigger: string;
+  condition: string;
+  action: string;
+  enabled: boolean;
+  priority?: number;
+  lastTriggered?: string;
+}
+
+interface BaseState {
+  ownerId?: string;
+  name: string;
+  position: string;
+  blockCount?: number;
+  healthPercent?: number;
+  decayRatePerHour?: number;
+  upkeepCost?: number;
+  underAttack?: boolean;
+  doors?: number;
+  lights?: number;
+  turrets?: number;
+}
+
+interface MarketListing {
+  id: string;
+  sellerId?: string;
+  sellerName?: string;
+  itemName: string;
+  quantity: number;
+  pricePerUnit: number;
+  currency: string;
+  available: boolean;
+  listedAt?: string;
+}
+
+export interface DuckBotState {
+  cameras: Map<string, CameraState>;
+  players: Map<string, PlayerState>;
+  chatHistory: ChatMessage[];
+  alerts: Map<string, AlertState>;
+  activity: ActivityState[];
+  markers: Map<string, MapMarker>;
+  automationRules: Map<string, AutomationRule>;
+  bases: BaseState[];
+  marketListings: MarketListing[];
+  server: ServerStatus;
+  rustClients: Set<WebSocket>;
+  outboundMessages: JsonObject[];
+  bridgeStartedAt: string;
+}
+
+const ROLE_RANK: Record<Role, number> = {
+  user: 0,
+  vip: 1,
+  mod: 2,
+  admin: 3,
+};
+
+export const DEFAULT_CONFIG: ServerConfig = {
+  stdioEnabled: process.env['MCP_STDIO'] !== '0',
+  bridgeEnabled: process.env['RUST_DUCKBOT_BRIDGE'] !== '0',
+  bridgeHost: process.env['RUST_DUCKBOT_BRIDGE_HOST'] ?? process.env['MCP_WS_HOST'] ?? '127.0.0.1',
+  bridgePort: Number(process.env['RUST_DUCKBOT_BRIDGE_PORT'] ?? process.env['MCP_WS_PORT'] ?? 3851),
+  logLevel: (process.env['MCP_LOG_LEVEL'] as LogLevel | undefined) ?? 'info',
+  seedDemoData: process.env['RUST_DUCKBOT_SEED_DEMO'] !== '0',
+  maxHistory: Number(process.env['RUST_DUCKBOT_MAX_HISTORY'] ?? 200),
+  adminToken: process.env['RUST_DUCKBOT_ADMIN_TOKEN'],
+  allowedAdminCommands: (process.env['RUST_DUCKBOT_ALLOWED_COMMANDS'] ?? 'status,serverinfo,kick,ban,unban,say,global.say,inventory.give,teleport,teleport2me,weather,time')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean),
+};
+
+function loadConfig(): ServerConfig {
+  const configPath = process.env['MCP_CONFIG_PATH'] ?? join(__dirname, '../../config.json');
+  if (!existsSync(configPath)) return DEFAULT_CONFIG;
+
+  try {
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as Partial<ServerConfig>;
+    return { ...DEFAULT_CONFIG, ...parsed };
+  } catch (error) {
+    log('warn', `Could not load config ${configPath}: ${String(error)}`);
+    return DEFAULT_CONFIG;
+  }
+}
+
+function log(level: LogLevel, ...args: unknown[]): void {
+  const levels: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
+  const configured = (process.env['MCP_LOG_LEVEL'] as LogLevel | undefined) ?? DEFAULT_CONFIG.logLevel;
+  if (levels[level] < levels[configured]) return;
+  console.error(`[${new Date().toISOString()}] [${level.toUpperCase()}]`, ...args);
+}
+
+function textResult(text: string, isError = false) {
+  return { content: [{ type: 'text' as const, text }], isError };
+}
+
+function jsonResult(value: unknown, isError = false) {
+  return textResult(JSON.stringify(value, null, 2), isError);
+}
+
+function requiredString(args: JsonObject, name: string): string | undefined {
+  const value = args[name];
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function optionalString(args: JsonObject, name: string, fallback = ''): string {
+  return requiredString(args, name) ?? fallback;
+}
+
+function optionalNumber(args: JsonObject, name: string, fallback: number): number {
+  const value = args[name];
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function normalizeRole(value: unknown): Role {
+  if (typeof value !== 'string') return 'user';
+  const role = value.toLowerCase();
+  return role === 'admin' || role === 'mod' || role === 'vip' || role === 'user' ? role : 'user';
+}
+
+function hasRole(actual: Role, required: Role): boolean {
+  return ROLE_RANK[actual] >= ROLE_RANK[required];
+}
+
+function findPlayer(state: DuckBotState, playerIdOrName?: string): PlayerState | undefined {
+  if (!playerIdOrName) return undefined;
+  const lower = playerIdOrName.toLowerCase();
+  return state.players.get(playerIdOrName)
+    ?? Array.from(state.players.values()).find((player) => player.name.toLowerCase() === lower)
+    ?? Array.from(state.players.values()).find((player) => player.name.toLowerCase().includes(lower));
+}
+
+function requesterRole(state: DuckBotState, args: JsonObject): Role {
+  const explicit = args['requester_role'] ?? args['player_role'] ?? args['role'];
+  if (explicit) return normalizeRole(explicit);
+
+  const requesterId = requiredString(args, 'requester_id') ?? requiredString(args, 'player_id');
+  const requesterName = requiredString(args, 'requester_name') ?? requiredString(args, 'admin_name') ?? requiredString(args, 'player_name');
+  return findPlayer(state, requesterId)?.role ?? findPlayer(state, requesterName)?.role ?? 'user';
+}
+
+function requireRole(state: DuckBotState, args: JsonObject, minimum: Role) {
+  const role = requesterRole(state, args);
+  if (!hasRole(role, minimum)) {
+    return textResult(`Permission denied: ${minimum}+ required, requester has ${role}.`, true);
+  }
+  return undefined;
+}
+
+function requireAdminToken(config: ServerConfig, args: JsonObject) {
+  if (!config.adminToken) return undefined;
+  const token = requiredString(args, 'admin_token');
+  if (token !== config.adminToken) {
+    return textResult('Permission denied: admin_token is required for this server.', true);
+  }
+  return undefined;
+}
+
+function commandAllowed(config: ServerConfig, command: string): boolean {
+  const firstWord = command.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+  return config.allowedAdminCommands.includes(firstWord);
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function pushLimited<T>(items: T[], item: T, max: number): void {
+  items.push(item);
+  while (items.length > max) items.shift();
+}
+
+export function createState(seedDemoData = DEFAULT_CONFIG.seedDemoData): DuckBotState {
+  const state: DuckBotState = {
+    cameras: new Map(),
+    players: new Map(),
+    chatHistory: [],
+    alerts: new Map(),
+    activity: [],
+    markers: new Map(),
+    automationRules: new Map(),
+    bases: [],
+    marketListings: [],
+    server: {
+      uptime: '0h',
+      fps: 0,
+      players: 0,
+      cameras: 0,
+      alerts: 0,
+      mcpConnected: false,
+      lastUpdated: nowIso(),
+    },
+    rustClients: new Set(),
+    outboundMessages: [],
+    bridgeStartedAt: nowIso(),
+  };
+
+  if (seedDemoData) seedState(state);
+  return state;
+}
+
+function seedState(state: DuckBotState): void {
+  [
+    { id: 'cam_gate_front', name: 'Main Gate', location: 'Front entrance', monument: 'Base', online: true, hasPower: true, isPTZ: true },
+    { id: 'cam_backyard', name: 'Back Yard', location: 'Rear perimeter', monument: 'Base', online: true, hasPower: true, isPTZ: false },
+    { id: 'cam_storage', name: 'Storage / TC', location: 'Core storage', monument: 'Base', online: true, hasPower: true, isPTZ: false },
+    { id: 'monument_oilrig', name: 'Oil Rig CCTV', location: 'Large Oil Rig', monument: 'Oil Rig', online: true, hasPower: true, isPTZ: false },
+    { id: 'monument_airfield', name: 'Airfield CCTV', location: 'Airfield', monument: 'Airfield', online: true, hasPower: true, isPTZ: false },
+  ].forEach((camera) => state.cameras.set(camera.id, camera));
+
+  [
+    { id: '76561198000000001', name: 'ServerOwner', role: 'admin' as Role, ping: 28, connectedAt: nowIso(), online: true },
+    { id: '76561198000000002', name: 'BaseBuilder', role: 'vip' as Role, ping: 52, connectedAt: nowIso(), online: true },
+  ].forEach((player) => state.players.set(player.id, player));
+
+  [
+    { id: 'auto_night_lights', name: 'Night Lights', trigger: 'time', condition: 'sunset', action: 'lights.on', enabled: true, priority: 1 },
+    { id: 'auto_raid_alert', name: 'Raid Auto-Alert', trigger: 'raid', condition: 'explosion_near_base', action: 'alert.all', enabled: true, priority: 3 },
+    { id: 'auto_decay_owner', name: 'Decay Reminder', trigger: 'decay', condition: '24h_warning', action: 'alert.owner', enabled: true, priority: 2 },
+  ].forEach((rule) => state.automationRules.set(rule.id, rule));
+
+  state.server = {
+    uptime: 'demo',
+    fps: 60,
+    players: state.players.size,
+    cameras: state.cameras.size,
+    alerts: 0,
+    mcpConnected: false,
+    lastUpdated: nowIso(),
+  };
+}
+
+const schema = {
+  string: (description: string) => ({ type: 'string', description }),
+  number: (description: string) => ({ type: 'number', description }),
+  boolean: (description: string) => ({ type: 'boolean', description }),
+  role: { type: 'string', enum: ['user', 'vip', 'mod', 'admin'], description: 'Requester role when the caller already knows it.' },
+};
+
+export const ALL_TOOLS = [
+  {
+    name: 'rust_computer_context',
+    description: 'Get the in-game DuckBot computer context for a player: role, active camera, alerts, and available feature groups.',
+    inputSchema: {
+      type: 'object',
+      properties: { player_id: schema.string('Player Steam ID.'), player_name: schema.string('Player display name.') },
+    },
+  },
+  {
+    name: 'rust_list_cameras',
+    description: 'List available CCTV cameras with location, power, online state, PTZ support, and view counts.',
+    inputSchema: { type: 'object', properties: { player_id: schema.string('Optional player Steam ID for access-aware filtering.') } },
+  },
+  {
+    name: 'rust_view_camera',
+    description: 'Ask the Rust plugin to switch a player computer station to a camera feed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        camera_id: schema.string('Camera identifier or known alias.'),
+        player_id: schema.string('Player Steam ID requesting the view.'),
+        requester_role: schema.role,
+      },
+      required: ['camera_id', 'player_id'],
+    },
+  },
+  {
+    name: 'rust_control_camera',
+    description: 'Control a PTZ camera. Requires vip or higher.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        camera_id: schema.string('Camera identifier.'),
+        action: { type: 'string', enum: ['left', 'right', 'up', 'down', 'zoom', 'zoom_in', 'zoom_out', 'reset', 'home'], description: 'PTZ action.' },
+        player_id: schema.string('Requester Steam ID.'),
+        requester_role: schema.role,
+      },
+      required: ['camera_id', 'action', 'player_id'],
+    },
+  },
+  {
+    name: 'rust_get_camera_snapshot',
+    description: 'Request a best-effort snapshot/thumbnail from a camera through the Rust plugin.',
+    inputSchema: {
+      type: 'object',
+      properties: { camera_id: schema.string('Camera identifier.'), player_id: schema.string('Requester Steam ID.'), requester_role: schema.role },
+      required: ['camera_id'],
+    },
+  },
+  {
+    name: 'rust_list_players',
+    description: 'List online players known to DuckBot with roles, ping, and session info.',
+    inputSchema: { type: 'object', properties: { role_filter: { type: 'string', enum: ['all', 'user', 'vip', 'mod', 'admin'] } } },
+  },
+  {
+    name: 'rust_get_player_info',
+    description: 'Get known player details and recent chat history.',
+    inputSchema: {
+      type: 'object',
+      properties: { player_id: schema.string('Steam ID.'), player_name: schema.string('Display name.') },
+    },
+  },
+  {
+    name: 'rust_find_player',
+    description: 'Search players by partial display name or Steam ID.',
+    inputSchema: { type: 'object', properties: { pattern: schema.string('Partial name or ID.') }, required: ['pattern'] },
+  },
+  {
+    name: 'rust_server_status',
+    description: 'Get Rust server health: uptime, FPS, players, cameras, alerts, memory, and bridge status.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'rust_chat_send',
+    description: 'Send a chat message to a player or global chat through the Rust plugin.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        message: schema.string('Message body.'),
+        target: schema.string('Player name/ID, or global.'),
+        sender: schema.string('Sender display name. Defaults to DuckBot.'),
+      },
+      required: ['message'],
+    },
+  },
+  {
+    name: 'rust_chat_history',
+    description: 'Read recent chat history, optionally filtered by player.',
+    inputSchema: {
+      type: 'object',
+      properties: { player_id: schema.string('Optional Steam ID filter.'), limit: schema.number('Maximum messages, default 20, max 100.') },
+    },
+  },
+  {
+    name: 'rust_list_alerts',
+    description: 'List smart alerts from the DuckBot computer security system.',
+    inputSchema: {
+      type: 'object',
+      properties: { include_acknowledged: schema.boolean('Include acknowledged alerts.'), severity: schema.string('Optional severity filter.') },
+    },
+  },
+  {
+    name: 'rust_ack_alert',
+    description: 'Acknowledge an alert. Requires vip or higher.',
+    inputSchema: {
+      type: 'object',
+      properties: { alert_id: schema.string('Alert ID.'), requester_id: schema.string('Requester Steam ID.'), requester_role: schema.role },
+      required: ['alert_id'],
+    },
+  },
+  {
+    name: 'rust_security_scan',
+    description: 'Request/return a security scan summary for nearby players, alerts, cameras, and watched bases. Requires vip or higher.',
+    inputSchema: {
+      type: 'object',
+      properties: { requester_id: schema.string('Requester Steam ID.'), radius: schema.number('Scan radius in meters.'), requester_role: schema.role },
+    },
+  },
+  {
+    name: 'rust_list_activity',
+    description: 'List recent DuckBot audit/activity entries. Requires mod or higher for all-player logs.',
+    inputSchema: {
+      type: 'object',
+      properties: { category: schema.string('Optional category.'), player_id: schema.string('Optional player filter.'), limit: schema.number('Default 25, max 100.'), requester_role: schema.role },
+    },
+  },
+  {
+    name: 'rust_list_map_markers',
+    description: 'List DuckBot grid/map markers available to a player.',
+    inputSchema: { type: 'object', properties: { player_id: schema.string('Optional owner/player filter.') } },
+  },
+  {
+    name: 'rust_add_map_marker',
+    description: 'Create a DuckBot map marker. Requires vip or higher.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: schema.string('Marker name.'),
+        position: schema.string('Grid or x,y,z position.'),
+        color: schema.string('Marker color.'),
+        icon: schema.string('Marker icon/type.'),
+        requester_id: schema.string('Requester Steam ID.'),
+        requester_role: schema.role,
+      },
+      required: ['name', 'position'],
+    },
+  },
+  {
+    name: 'rust_list_automation_rules',
+    description: 'List DuckBot automation rules.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'rust_set_automation_rule',
+    description: 'Enable, disable, run, or delete an automation rule. Requires admin.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        rule_id: schema.string('Automation rule ID.'),
+        action: { type: 'string', enum: ['enable', 'disable', 'run', 'delete'], description: 'Action to perform.' },
+        requester_id: schema.string('Requester Steam ID.'),
+        requester_role: schema.role,
+        admin_token: schema.string('Optional server admin token when configured.'),
+      },
+      required: ['rule_id', 'action'],
+    },
+  },
+  {
+    name: 'rust_base_status',
+    description: 'List monitored bases, decay, defenses, and attack state for a player.',
+    inputSchema: { type: 'object', properties: { player_id: schema.string('Optional owner Steam ID.'), requester_role: schema.role } },
+  },
+  {
+    name: 'rust_market_listings',
+    description: 'List DuckBot trading/vending listings.',
+    inputSchema: {
+      type: 'object',
+      properties: { query: schema.string('Optional item search.'), include_unavailable: schema.boolean('Include unavailable listings.') },
+    },
+  },
+  {
+    name: 'rust_admin_command',
+    description: 'Execute a whitelisted Rust server console/RCON command through the plugin. Requires admin and optional admin_token.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        command: schema.string('Raw Rust console command. The first word must be in the whitelist.'),
+        requester_id: schema.string('Admin Steam ID.'),
+        player_name: schema.string('Admin display name for audit.'),
+        requester_role: schema.role,
+        admin_token: schema.string('Optional server admin token when configured.'),
+      },
+      required: ['command'],
+    },
+  },
+  {
+    name: 'rust_kick_player',
+    description: 'Kick a player. Requires mod or higher.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        player_id: schema.string('Target Steam ID or display name.'),
+        reason: schema.string('Reason shown/logged.'),
+        requester_id: schema.string('Requester Steam ID.'),
+        requester_role: schema.role,
+      },
+      required: ['player_id'],
+    },
+  },
+  {
+    name: 'rust_ban_player',
+    description: 'Ban a player. Requires admin.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        player_id: schema.string('Target Steam ID or display name.'),
+        reason: schema.string('Ban reason.'),
+        duration: schema.string('Duration such as 1d, 7d, 30d, perm.'),
+        requester_id: schema.string('Requester Steam ID.'),
+        requester_role: schema.role,
+        admin_token: schema.string('Optional server admin token when configured.'),
+      },
+      required: ['player_id', 'reason'],
+    },
+  },
+  {
+    name: 'rust_lockdown',
+    description: 'Start, stop, or query emergency base/server lockdown. Requires admin.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['start', 'stop', 'status'], description: 'Lockdown action.' },
+        reason: schema.string('Reason for audit.'),
+        requester_id: schema.string('Requester Steam ID.'),
+        requester_role: schema.role,
+        admin_token: schema.string('Optional server admin token when configured.'),
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'rust_agent_status',
+    description: 'Show DuckBot MCP bridge status and agent interchangeability details.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+];
+
+function resolveCamera(state: DuckBotState, value: string): CameraState | undefined {
+  const lower = value.toLowerCase();
+  return state.cameras.get(value)
+    ?? Array.from(state.cameras.values()).find((camera) => camera.id.toLowerCase() === lower)
+    ?? Array.from(state.cameras.values()).find((camera) => camera.name.toLowerCase().includes(lower) || camera.location.toLowerCase().includes(lower));
+}
+
+function sendToRust(state: DuckBotState, message: JsonObject): boolean {
+  const withMeta = { ...message, mcp_time: nowIso() };
+  state.outboundMessages.push(withMeta);
+
+  let sent = false;
+  for (const client of state.rustClients) {
+    if (client.readyState !== WebSocket.OPEN) continue;
+    client.send(JSON.stringify(withMeta));
+    sent = true;
+  }
+  return sent;
+}
+
+function recordActivity(state: DuckBotState, category: string, action: string, details: string, playerId?: string, playerName?: string, maxHistory = DEFAULT_CONFIG.maxHistory): void {
+  pushLimited(state.activity, { time: nowIso(), category, action, details, playerId, playerName }, maxHistory);
+}
+
+export async function handleToolCall(
+  name: string,
+  args: JsonObject = {},
+  state: DuckBotState = defaultState,
+  config: ServerConfig = DEFAULT_CONFIG,
+) {
+  switch (name) {
+    case 'rust_computer_context': {
+      const player = findPlayer(state, requiredString(args, 'player_id') ?? requiredString(args, 'player_name'));
+      const role = player?.role ?? requesterRole(state, args);
+      return jsonResult({
+        player: player ?? null,
+        role,
+        bridgeConnected: state.rustClients.size > 0,
+        capabilities: {
+          user: ['chat', 'view_cameras', 'server_status', 'market'],
+          vip: ['ptz_camera_control', 'security_scan', 'alerts', 'markers', 'base_status'],
+          mod: ['activity_review', 'player_lookup', 'kick'],
+          admin: ['admin_commands', 'ban', 'lockdown', 'automation'],
+        },
+        activeAlerts: Array.from(state.alerts.values()).filter((alert) => !alert.acknowledged).length,
+        cameras: state.cameras.size,
+        players: state.players.size,
+      });
+    }
+
+    case 'rust_list_cameras':
+    case 'rust_get_cameras':
+      return jsonResult({ cameras: Array.from(state.cameras.values()), count: state.cameras.size });
+
+    case 'rust_view_camera': {
+      const cameraId = requiredString(args, 'camera_id');
+      const playerId = requiredString(args, 'player_id');
+      if (!cameraId || !playerId) return textResult('camera_id and player_id are required.', true);
+      const camera = resolveCamera(state, cameraId);
+      if (!camera) return textResult(`Camera not found: ${cameraId}`, true);
+      if (!camera.online || !camera.hasPower) return textResult(`Camera unavailable: ${camera.name}`, true);
+      camera.viewCount = (camera.viewCount ?? 0) + 1;
+      camera.lastActivity = nowIso();
+      const sent = sendToRust(state, { type: 'view_camera_request', camera_id: camera.id, player_id: playerId });
+      recordActivity(state, 'camera', 'view', `${playerId} requested ${camera.name}`, playerId, undefined, config.maxHistory);
+      return jsonResult({ status: sent ? 'sent_to_rust' : 'queued_no_rust_client', camera, player_id: playerId });
+    }
+
+    case 'rust_control_camera': {
+      const denied = requireRole(state, args, 'vip');
+      if (denied) return denied;
+      const cameraId = requiredString(args, 'camera_id');
+      const action = requiredString(args, 'action');
+      const playerId = requiredString(args, 'player_id');
+      if (!cameraId || !action || !playerId) return textResult('camera_id, action, and player_id are required.', true);
+      const camera = resolveCamera(state, cameraId);
+      if (!camera) return textResult(`Camera not found: ${cameraId}`, true);
+      if (!camera.isPTZ) return textResult(`${camera.name} does not support PTZ control.`, true);
+      const sent = sendToRust(state, { type: 'camera_control', camera_id: camera.id, action, player_id: playerId });
+      recordActivity(state, 'camera', 'control', `${playerId} ${action} ${camera.name}`, playerId, undefined, config.maxHistory);
+      return jsonResult({ status: sent ? 'sent_to_rust' : 'queued_no_rust_client', camera_id: camera.id, action });
+    }
+
+    case 'rust_get_camera_snapshot': {
+      const cameraId = requiredString(args, 'camera_id');
+      if (!cameraId) return textResult('camera_id is required.', true);
+      const camera = resolveCamera(state, cameraId);
+      if (!camera) return textResult(`Camera not found: ${cameraId}`, true);
+      const sent = sendToRust(state, { type: 'camera_snapshot', camera_id: camera.id, player_id: optionalString(args, 'player_id') });
+      return jsonResult({ status: sent ? 'snapshot_requested' : 'queued_no_rust_client', camera });
+    }
+
+    case 'rust_list_players':
+    case 'rust_get_online_players': {
+      const roleFilter = optionalString(args, 'role_filter', 'all');
+      const players = Array.from(state.players.values()).filter((player) => roleFilter === 'all' || player.role === roleFilter);
+      return jsonResult({ players, count: players.length });
+    }
+
+    case 'rust_get_player_info': {
+      const player = findPlayer(state, requiredString(args, 'player_id') ?? requiredString(args, 'player_name'));
+      if (!player) return textResult('Player not found.', true);
+      const history = state.chatHistory.filter((message) => message.playerId === player.id || message.playerName === player.name).slice(-20);
+      return jsonResult({ player, recentChat: history });
+    }
+
+    case 'rust_find_player': {
+      const pattern = requiredString(args, 'pattern');
+      if (!pattern) return textResult('pattern is required.', true);
+      const lower = pattern.toLowerCase();
+      const players = Array.from(state.players.values()).filter((player) => player.id.includes(pattern) || player.name.toLowerCase().includes(lower));
+      return jsonResult({ players, count: players.length });
+    }
+
+    case 'rust_server_status':
+    case 'rust_get_server_status':
+      return jsonResult({ ...state.server, bridgeClients: state.rustClients.size, queuedMessages: state.outboundMessages.length });
+
+    case 'rust_chat_send':
+    case 'rust_send_chat': {
+      const message = requiredString(args, 'message');
+      if (!message) return textResult('message is required.', true);
+      const target = optionalString(args, 'target', 'global');
+      const sender = optionalString(args, 'sender', 'DuckBot');
+      const sent = sendToRust(state, { type: 'chat_send', message, target, sender });
+      pushLimited(state.chatHistory, { sender, message, target, time: nowIso(), isAI: true }, config.maxHistory);
+      return jsonResult({ status: sent ? 'sent_to_rust' : 'queued_no_rust_client', target, sender, message });
+    }
+
+    case 'rust_chat_history':
+    case 'rust_get_recent_chat': {
+      const playerId = requiredString(args, 'player_id');
+      const limit = Math.min(optionalNumber(args, 'limit', 20), 100);
+      const messages = playerId ? state.chatHistory.filter((message) => message.playerId === playerId).slice(-limit) : state.chatHistory.slice(-limit);
+      return jsonResult({ messages, count: messages.length });
+    }
+
+    case 'rust_list_alerts': {
+      const includeAcknowledged = Boolean(args['include_acknowledged']);
+      const severity = requiredString(args, 'severity');
+      const alerts = Array.from(state.alerts.values()).filter((alert) => {
+        if (!includeAcknowledged && alert.acknowledged) return false;
+        if (severity && alert.severity !== severity) return false;
+        return true;
+      });
+      return jsonResult({ alerts, count: alerts.length });
+    }
+
+    case 'rust_ack_alert': {
+      const denied = requireRole(state, args, 'vip');
+      if (denied) return denied;
+      const alertId = requiredString(args, 'alert_id');
+      if (!alertId) return textResult('alert_id is required.', true);
+      const alert = state.alerts.get(alertId);
+      if (!alert) return textResult(`Alert not found: ${alertId}`, true);
+      alert.acknowledged = true;
+      alert.acknowledgedBy = optionalString(args, 'requester_id', 'mcp');
+      sendToRust(state, { type: 'ack_alert', alert_id: alertId, requester_id: alert.acknowledgedBy });
+      return jsonResult({ acknowledged: alert });
+    }
+
+    case 'rust_security_scan': {
+      const denied = requireRole(state, args, 'vip');
+      if (denied) return denied;
+      const radius = optionalNumber(args, 'radius', 100);
+      const sent = sendToRust(state, { type: 'security_scan', requester_id: optionalString(args, 'requester_id'), radius });
+      return jsonResult({
+        status: sent ? 'sent_to_rust' : 'local_summary_only',
+        radius,
+        onlinePlayers: state.players.size,
+        activeAlerts: Array.from(state.alerts.values()).filter((alert) => !alert.acknowledged),
+        onlineCameras: Array.from(state.cameras.values()).filter((camera) => camera.online && camera.hasPower).length,
+      });
+    }
+
+    case 'rust_list_activity': {
+      const playerId = requiredString(args, 'player_id');
+      if (!playerId) {
+        const denied = requireRole(state, args, 'mod');
+        if (denied) return denied;
+      }
+      const category = requiredString(args, 'category');
+      const limit = Math.min(optionalNumber(args, 'limit', 25), 100);
+      const entries = state.activity
+        .filter((entry) => !category || entry.category === category)
+        .filter((entry) => !playerId || entry.playerId === playerId)
+        .slice(-limit);
+      return jsonResult({ entries, count: entries.length });
+    }
+
+    case 'rust_list_map_markers': {
+      const playerId = requiredString(args, 'player_id');
+      const markers = Array.from(state.markers.values()).filter((marker) => marker.visible || !playerId || marker.ownerId === playerId);
+      return jsonResult({ markers, count: markers.length });
+    }
+
+    case 'rust_add_map_marker': {
+      const denied = requireRole(state, args, 'vip');
+      if (denied) return denied;
+      const nameArg = requiredString(args, 'name');
+      const position = requiredString(args, 'position');
+      if (!nameArg || !position) return textResult('name and position are required.', true);
+      const marker: MapMarker = {
+        id: `marker_${Date.now()}`,
+        name: nameArg,
+        position,
+        color: optionalString(args, 'color', 'yellow'),
+        icon: optionalString(args, 'icon', 'pin'),
+        ownerId: optionalString(args, 'requester_id'),
+        visible: true,
+      };
+      state.markers.set(marker.id, marker);
+      const sent = sendToRust(state, { type: 'map_marker_add', marker });
+      return jsonResult({ status: sent ? 'sent_to_rust' : 'stored_locally', marker });
+    }
+
+    case 'rust_list_automation_rules':
+      return jsonResult({ rules: Array.from(state.automationRules.values()), count: state.automationRules.size });
+
+    case 'rust_set_automation_rule': {
+      const denied = requireRole(state, args, 'admin') ?? requireAdminToken(config, args);
+      if (denied) return denied;
+      const ruleId = requiredString(args, 'rule_id');
+      const action = requiredString(args, 'action');
+      if (!ruleId || !action) return textResult('rule_id and action are required.', true);
+      const rule = state.automationRules.get(ruleId);
+      if (!rule) return textResult(`Rule not found: ${ruleId}`, true);
+      if (action === 'enable') rule.enabled = true;
+      if (action === 'disable') rule.enabled = false;
+      if (action === 'delete') state.automationRules.delete(ruleId);
+      if (action === 'run') rule.lastTriggered = nowIso();
+      const sent = sendToRust(state, { type: 'automation_rule', rule_id: ruleId, action });
+      return jsonResult({ status: sent ? 'sent_to_rust' : 'stored_locally', rule, deleted: action === 'delete' });
+    }
+
+    case 'rust_base_status': {
+      const playerId = requiredString(args, 'player_id');
+      const bases = playerId ? state.bases.filter((base) => base.ownerId === playerId) : state.bases;
+      return jsonResult({ bases, count: bases.length });
+    }
+
+    case 'rust_market_listings': {
+      const query = requiredString(args, 'query')?.toLowerCase();
+      const includeUnavailable = Boolean(args['include_unavailable']);
+      const listings = state.marketListings
+        .filter((listing) => includeUnavailable || listing.available)
+        .filter((listing) => !query || listing.itemName.toLowerCase().includes(query));
+      return jsonResult({ listings, count: listings.length });
+    }
+
+    case 'rust_admin_command':
+    case 'rust_execute_command': {
+      const denied = requireRole(state, args, 'admin') ?? requireAdminToken(config, args);
+      if (denied) return denied;
+      const command = requiredString(args, 'command');
+      if (!command) return textResult('command is required.', true);
+      if (!commandAllowed(config, command)) return textResult(`Command is not whitelisted: ${command.split(/\s+/)[0] ?? command}`, true);
+      const adminName = optionalString(args, 'player_name', optionalString(args, 'requester_id', 'mcp-admin'));
+      const sent = sendToRust(state, { type: 'admin_command', command, admin_name: adminName });
+      recordActivity(state, 'admin', 'command', `${adminName}: ${command}`, optionalString(args, 'requester_id'), adminName, config.maxHistory);
+      return jsonResult({ status: sent ? 'sent_to_rust' : 'queued_no_rust_client', command, admin_name: adminName });
+    }
+
+    case 'rust_kick_player': {
+      const denied = requireRole(state, args, 'mod');
+      if (denied) return denied;
+      const target = requiredString(args, 'player_id');
+      if (!target) return textResult('player_id is required.', true);
+      const reason = optionalString(args, 'reason', 'Kicked by staff');
+      const sent = sendToRust(state, { type: 'kick_player', player_id: target, reason, requester_id: optionalString(args, 'requester_id') });
+      return jsonResult({ status: sent ? 'sent_to_rust' : 'queued_no_rust_client', player_id: target, reason });
+    }
+
+    case 'rust_ban_player': {
+      const denied = requireRole(state, args, 'admin') ?? requireAdminToken(config, args);
+      if (denied) return denied;
+      const target = requiredString(args, 'player_id');
+      const reason = requiredString(args, 'reason');
+      if (!target || !reason) return textResult('player_id and reason are required.', true);
+      const duration = optionalString(args, 'duration', 'perm');
+      const sent = sendToRust(state, { type: 'ban_player', player_id: target, reason, duration, requester_id: optionalString(args, 'requester_id') });
+      return jsonResult({ status: sent ? 'sent_to_rust' : 'queued_no_rust_client', player_id: target, reason, duration });
+    }
+
+    case 'rust_lockdown': {
+      const denied = requireRole(state, args, 'admin') ?? requireAdminToken(config, args);
+      if (denied) return denied;
+      const action = requiredString(args, 'action');
+      if (!action) return textResult('action is required.', true);
+      const sent = sendToRust(state, { type: 'lockdown', action, reason: optionalString(args, 'reason'), requester_id: optionalString(args, 'requester_id') });
+      return jsonResult({ status: sent ? 'sent_to_rust' : 'queued_no_rust_client', action });
+    }
+
+    case 'rust_agent_status':
+      return jsonResult({
+        name: 'rust-duckbot-mcp',
+        version: VERSION,
+        bridge: {
+          clients: state.rustClients.size,
+          startedAt: state.bridgeStartedAt,
+          queuedMessages: state.outboundMessages.length,
+        },
+        interchangeableAgents: ['DuckBot/OpenClaw', 'Codex', 'Claude Desktop', 'Cursor', 'any MCP client over stdio'],
+        transports: ['stdio MCP', 'websocket bridge'],
+      });
+
+    default:
+      return textResult(`Unknown tool: ${name}`, true);
+  }
+}
+
+function valueAsString(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function valueAsNumber(value: unknown, fallback = 0): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function normalizeCamera(raw: JsonObject): CameraState {
+  const id = valueAsString(raw['id'] ?? raw['Id'] ?? raw['camera_id'] ?? raw['cameraId'], `camera_${Date.now()}`);
+  return {
+    id,
+    name: valueAsString(raw['name'] ?? raw['Name'], id),
+    location: valueAsString(raw['location'] ?? raw['Location'], 'Unknown'),
+    monument: valueAsString(raw['monument'] ?? raw['Monument'], undefined as unknown as string),
+    online: raw['online'] !== false && raw['Online'] !== false,
+    hasPower: raw['hasPower'] !== false && raw['HasPower'] !== false,
+    isPTZ: Boolean(raw['isPTZ'] ?? raw['IsPTZ'] ?? raw['ptz']),
+    viewCount: valueAsNumber(raw['viewCount'] ?? raw['ViewCount'], 0),
+    lastActivity: valueAsString(raw['lastActivity'] ?? raw['LastActivity'], undefined as unknown as string),
+  };
+}
+
+function normalizePlayer(raw: JsonObject): PlayerState {
+  const id = valueAsString(raw['id'] ?? raw['playerId'] ?? raw['player_id'] ?? raw['UserIDString'], `player_${Date.now()}`);
+  return {
+    id,
+    name: valueAsString(raw['name'] ?? raw['playerName'] ?? raw['player_name'] ?? raw['displayName'], id),
+    role: normalizeRole(raw['role']),
+    ping: valueAsNumber(raw['ping'], 0),
+    connectedAt: valueAsString(raw['connectedAt'] ?? raw['connected_at'], nowIso()),
+    currentCamera: valueAsString(raw['currentCamera'] ?? raw['current_camera'], undefined as unknown as string),
+    online: raw['online'] !== false,
+    position: valueAsString(raw['position'], undefined as unknown as string),
+  };
+}
+
+export function handleRustMessage(raw: JsonObject, state: DuckBotState = defaultState, config: ServerConfig = DEFAULT_CONFIG): void {
+  const type = valueAsString(raw['type']);
+  switch (type) {
+    case 'rust_hello':
+    case 'mcp_hello':
+    case 'heartbeat': {
+      state.server.mcpConnected = true;
+      state.server.lastUpdated = nowIso();
+      const players = raw['players'];
+      if (Array.isArray(players)) {
+        state.players.clear();
+        for (const player of players) {
+          if (typeof player === 'object' && player) {
+            const normalized = normalizePlayer(player as JsonObject);
+            state.players.set(normalized.id, normalized);
+          }
+        }
+      }
+      state.server.players = valueAsNumber(raw['playerCount'] ?? raw['playersOnline'], state.players.size);
+      break;
+    }
+
+    case 'player_list': {
+      const players = raw['players'];
+      if (Array.isArray(players)) {
+        state.players.clear();
+        for (const player of players) {
+          if (typeof player === 'object' && player) {
+            const normalized = normalizePlayer(player as JsonObject);
+            state.players.set(normalized.id, normalized);
+          }
+        }
+      }
+      state.server.players = state.players.size;
+      state.server.lastUpdated = nowIso();
+      break;
+    }
+
+    case 'player_joined': {
+      const player = normalizePlayer(raw);
+      player.online = true;
+      state.players.set(player.id, player);
+      recordActivity(state, 'system', 'player_joined', `${player.name} joined`, player.id, player.name, config.maxHistory);
+      break;
+    }
+
+    case 'player_left': {
+      const id = valueAsString(raw['playerId'] ?? raw['player_id']);
+      const player = findPlayer(state, id);
+      if (player) player.online = false;
+      recordActivity(state, 'system', 'player_left', `${valueAsString(raw['playerName'] ?? raw['player_name'], id)} left`, id, undefined, config.maxHistory);
+      break;
+    }
+
+    case 'player_chat':
+    case 'ai_chat': {
+      const playerId = valueAsString(raw['playerId'] ?? raw['player_id']);
+      const playerName = valueAsString(raw['playerName'] ?? raw['player_name'], playerId);
+      pushLimited(state.chatHistory, {
+        playerId,
+        playerName,
+        sender: type === 'ai_chat' ? 'DuckBot' : playerName,
+        role: normalizeRole(raw['role']),
+        message: valueAsString(raw['message']),
+        time: valueAsString(raw['time'], nowIso()),
+        isAI: type === 'ai_chat',
+      }, config.maxHistory);
+      break;
+    }
+
+    case 'camera_update': {
+      const cameras = raw['cameras'];
+      if (Array.isArray(cameras)) {
+        state.cameras.clear();
+        for (const camera of cameras) {
+          if (typeof camera === 'object' && camera) {
+            const normalized = normalizeCamera(camera as JsonObject);
+            state.cameras.set(normalized.id, normalized);
+          }
+        }
+      }
+      state.server.cameras = state.cameras.size;
+      state.server.lastUpdated = nowIso();
+      break;
+    }
+
+    case 'camera_view':
+    case 'camera_control': {
+      const cameraId = valueAsString(raw['cameraId'] ?? raw['camera_id']);
+      const camera = resolveCamera(state, cameraId);
+      if (camera) camera.lastActivity = nowIso();
+      recordActivity(state, 'camera', type, `${valueAsString(raw['playerName'] ?? raw['player_name'])} ${type} ${cameraId}`, valueAsString(raw['playerId'] ?? raw['player_id']), valueAsString(raw['playerName'] ?? raw['player_name']), config.maxHistory);
+      break;
+    }
+
+    case 'alert': {
+      const id = valueAsString(raw['alertId'] ?? raw['alert_id'] ?? raw['id'], `alert_${Date.now()}`);
+      state.alerts.set(id, {
+        id,
+        type: valueAsString(raw['alertType'] ?? raw['alert_type'] ?? raw['category'], 'system'),
+        severity: valueAsString(raw['severity'], 'medium'),
+        title: valueAsString(raw['title'], 'Alert'),
+        message: valueAsString(raw['message']),
+        time: valueAsString(raw['time'], nowIso()),
+        acknowledged: false,
+        location: valueAsString(raw['location'], undefined as unknown as string),
+      });
+      state.server.alerts = state.alerts.size;
+      break;
+    }
+
+    case 'activity': {
+      recordActivity(
+        state,
+        valueAsString(raw['category'], 'system'),
+        valueAsString(raw['action'], 'event'),
+        valueAsString(raw['details'], ''),
+        valueAsString(raw['playerId'] ?? raw['player_id']),
+        valueAsString(raw['playerName'] ?? raw['player_name']),
+        config.maxHistory,
+      );
+      break;
+    }
+
+    case 'server_status': {
+      state.server = {
+        uptime: valueAsString(raw['uptime'], state.server.uptime),
+        fps: valueAsNumber(raw['fps'], state.server.fps),
+        players: valueAsNumber(raw['players'] ?? raw['playerCount'], state.players.size),
+        sleeping: valueAsNumber(raw['sleeping'], state.server.sleeping ?? 0),
+        cameras: valueAsNumber(raw['cameras'], state.cameras.size),
+        alerts: valueAsNumber(raw['alerts'], state.alerts.size),
+        memoryMB: valueAsNumber(raw['memoryMB'] ?? raw['memory'], state.server.memoryMB ?? 0),
+        mcpConnected: true,
+        rconConnected: Boolean(raw['rconConnected'] ?? state.server.rconConnected),
+        lastUpdated: nowIso(),
+      };
+      break;
+    }
+
+    case 'automation_update': {
+      const rules = raw['rules'];
+      if (Array.isArray(rules)) {
+        state.automationRules.clear();
+        for (const rule of rules) {
+          if (typeof rule === 'object' && rule) {
+            const item = rule as JsonObject;
+            const id = valueAsString(item['id'] ?? item['Id'], `rule_${Date.now()}`);
+            state.automationRules.set(id, {
+              id,
+              name: valueAsString(item['name'] ?? item['Name'], id),
+              trigger: valueAsString(item['trigger'] ?? item['Trigger']),
+              condition: valueAsString(item['condition'] ?? item['Condition']),
+              action: valueAsString(item['action'] ?? item['Action']),
+              enabled: item['enabled'] !== false && item['Enabled'] !== false,
+              priority: valueAsNumber(item['priority'] ?? item['Priority'], 0),
+              lastTriggered: valueAsString(item['lastTriggered'] ?? item['LastTriggered'], undefined as unknown as string),
+            });
+          }
+        }
+      }
+      break;
+    }
+
+    default:
+      log('debug', `Unhandled Rust message type: ${type || '(missing)'}`);
+  }
+}
+
+export function createMcpServer(state: DuckBotState, config: ServerConfig): Server {
+  const server = new Server(
+    { name: 'rust-duckbot-mcp', version: VERSION },
+    { capabilities: { tools: {}, resources: {}, prompts: {} } },
+  );
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: ALL_TOOLS }));
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args = {} } = request.params;
+    return handleToolCall(name, args as JsonObject, state, config);
+  });
+
+  server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+    resources: [
+      { uri: 'rustduckbot://server/status', name: 'RustDuckBot server status', mimeType: 'application/json' },
+      { uri: 'rustduckbot://cameras', name: 'Known cameras', mimeType: 'application/json' },
+      { uri: 'rustduckbot://players', name: 'Known players', mimeType: 'application/json' },
+      { uri: 'rustduckbot://alerts', name: 'Security alerts', mimeType: 'application/json' },
+    ],
+  }));
+
+  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    const uri = request.params.uri;
+    if (uri === 'rustduckbot://server/status') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(state.server, null, 2) }] };
+    if (uri === 'rustduckbot://cameras') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(Array.from(state.cameras.values()), null, 2) }] };
+    if (uri === 'rustduckbot://players') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(Array.from(state.players.values()), null, 2) }] };
+    if (uri === 'rustduckbot://alerts') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(Array.from(state.alerts.values()), null, 2) }] };
+    return { contents: [{ uri, mimeType: 'text/plain', text: `Unknown resource: ${uri}` }] };
+  });
+
+  server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+    prompts: [
+      {
+        name: 'rust_duckbot_player_reply',
+        description: 'Generate a concise in-game DuckBot reply based on player role and context.',
+        arguments: [
+          { name: 'player_name', description: 'Player display name', required: true },
+          { name: 'player_role', description: 'user, vip, mod, or admin', required: true },
+          { name: 'message', description: 'Player message', required: true },
+        ],
+      },
+      {
+        name: 'rust_duckbot_admin_review',
+        description: 'Review an admin action before execution.',
+        arguments: [
+          { name: 'admin_name', description: 'Admin display name', required: true },
+          { name: 'action', description: 'Requested action', required: true },
+          { name: 'target', description: 'Target player/entity', required: false },
+        ],
+      },
+    ],
+  }));
+
+  server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    const args = request.params.arguments ?? {};
+    if (request.params.name === 'rust_duckbot_player_reply') {
+      return {
+        description: 'RustDuckBot player reply',
+        messages: [{
+          role: 'user',
+          content: {
+            type: 'text',
+            text: `You are DuckBot inside a Rust computer station. Reply concisely for chat.\nPlayer: ${args['player_name']}\nRole: ${args['player_role']}\nMessage: ${args['message']}\nUse tools only within the player's role.`,
+          },
+        }],
+      };
+    }
+
+    if (request.params.name === 'rust_duckbot_admin_review') {
+      return {
+        description: 'RustDuckBot admin review',
+        messages: [{
+          role: 'user',
+          content: {
+            type: 'text',
+            text: `Review this Rust admin action for safety and auditability.\nAdmin: ${args['admin_name']}\nAction: ${args['action']}\nTarget: ${args['target'] ?? 'n/a'}\nRespond with APPROVE or DENY and a short reason.`,
+          },
+        }],
+      };
+    }
+
+    throw new Error(`Unknown prompt: ${request.params.name}`);
+  });
+
+  return server;
+}
+
+async function handleWsRpc(rpc: JsonObject, socket: WebSocket, state: DuckBotState, config: ServerConfig): Promise<boolean> {
+  const method = valueAsString(rpc['method']);
+  const id = rpc['id'];
+  if (!method) return false;
+
+  if (method === 'initialize') {
+    socket.send(JSON.stringify({
+      jsonrpc: '2.0',
+      id,
+      result: {
+        protocolVersion: '2025-06-18',
+        capabilities: { tools: { listChanged: true }, resources: {}, prompts: {} },
+        serverInfo: { name: 'rust-duckbot-mcp', version: VERSION },
+      },
+    }));
+    return true;
+  }
+
+  if (method === 'tools/list') {
+    socket.send(JSON.stringify({ jsonrpc: '2.0', id, result: { tools: ALL_TOOLS } }));
+    return true;
+  }
+
+  if (method === 'tools/call') {
+    const params = (typeof rpc['params'] === 'object' && rpc['params'] ? rpc['params'] : {}) as JsonObject;
+    const toolName = valueAsString(params['name']);
+    const toolArgs = (typeof params['arguments'] === 'object' && params['arguments'] ? params['arguments'] : {}) as JsonObject;
+    const result = await handleToolCall(toolName, toolArgs, state, config);
+    socket.send(JSON.stringify({ jsonrpc: '2.0', id, result }));
+    return true;
+  }
+
+  return false;
+}
+
+export function startBridgeServer(state: DuckBotState, config: ServerConfig): { close: () => void } | undefined {
+  if (!config.bridgeEnabled) return undefined;
+
+  const httpServer = createServer();
+  const wss = new WebSocketServer({ server: httpServer });
+
+  wss.on('connection', (socket, request) => {
+    log('info', `Bridge client connected from ${request.socket.remoteAddress ?? 'unknown'}`);
+    socket.send(JSON.stringify({ type: 'mcp_hello', name: 'rust-duckbot-mcp', version: VERSION, tools: ALL_TOOLS.length }));
+
+    socket.on('message', async (data) => {
+      const raw = data.toString();
+      try {
+        const parsed = JSON.parse(raw) as JsonObject;
+        const handledAsRpc = await handleWsRpc(parsed, socket, state, config);
+        if (!handledAsRpc) {
+          state.rustClients.add(socket);
+          handleRustMessage(parsed, state, config);
+        }
+      } catch (error) {
+        log('warn', `Bridge message parse failed: ${String(error)}`);
+      }
+    });
+
+    socket.on('close', () => {
+      state.rustClients.delete(socket);
+      state.server.mcpConnected = state.rustClients.size > 0;
+      log('info', 'Bridge client disconnected');
+    });
+  });
+
+  httpServer.listen(config.bridgePort, config.bridgeHost, () => {
+    log('info', `RustDuckBot bridge listening on ws://${config.bridgeHost}:${config.bridgePort}`);
+  });
+
+  return {
+    close: () => {
+      wss.close();
+      httpServer.close();
+    },
+  };
+}
+
+const defaultState = createState();
+
+export async function main(): Promise<void> {
+  const config = loadConfig();
+  const state = createState(config.seedDemoData);
+  startBridgeServer(state, config);
+
+  if (config.stdioEnabled) {
+    const server = createMcpServer(state, config);
+    await server.connect(new StdioServerTransport());
+    log('info', 'RustDuckBot MCP stdio transport connected');
+  } else {
+    log('info', 'MCP stdio transport disabled');
+  }
+}
+
+const isMain = process.argv[1] ? import.meta.url === pathToFileURL(process.argv[1]).href : false;
+if (isMain) {
+  main().catch((error) => {
+    log('error', 'Fatal MCP server error:', error);
+    process.exit(1);
+  });
+}
