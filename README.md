@@ -1,20 +1,22 @@
 # RustDuckBot
 
-> **v1.3.3** — AI-powered in-game terminal for Rust. Runs with or without an AI agent.
+> **v1.4.0** — AI-powered in-game terminal for Rust. Runs with or without an AI agent.
 
-RustDuckBot turns Rust's computer station into a full interactive AI terminal. When a player sits at a Computer Station item in-game, they get a CUI overlay panel — and every player gets 13 teleport commands, 163+ total commands, security alerts, CCTV controls, a built-in AI chat screen, and more. Powered by DuckBot, LM Studio, OpenAI, Claude, or OpenRouter — your choice.
-
-The AI agent is **optional**. Configure LM Studio and the plugin responds locally with no external services needed.
+RustDuckBot turns Rust's computer station into a full interactive AI terminal. When a player sits at a Computer Station item in-game, they get a CUI overlay panel — and every player gets 13 teleport commands, full moderation tools, economy rewards, combat intel, building helpers, and 176+ total commands. Powered by DuckBot, LM Studio, OpenAI, Claude, or OpenRouter.
 
 ---
 
-## What's New in v1.3.x
+## What's New in v1.4.x
 
-- **🖥 Real Computer Station integration** — hooks into `OnComputerStationUse`, `OnCCTVCameraUsed`, `OnPlayerInput` to detect when a player physically sits at a Computer Station in-game, not just types chat commands
+- **🖥 Real Computer Station integration** — hooks into `OnComputerStationUse`, `OnCCTVCameraUsed`, `OnPlayerInput` to detect when a player physically sits at a Computer Station in-game
 - **💬 In-terminal CUI chat screen** — full scrollable chat panel with timestamps, sender colors, input field, and quick-prompt buttons, rendered inside the game
 - **🤖 5 AI backends** — DuckBot MCP, LM Studio (local), OpenAI, Anthropic/Claude, OpenRouter
 - **🛰 Full teleport system** — 13 teleport commands including tpr/tpa request flow, sethome (5 per player), town, bandit, back, random TP, and coordinates
-- **🛡 Null-safe MCP** — plugin no longer crashes when MCP is disconnected; all `_mcpClient` calls are null-guarded
+- **🛡 Moderation tools** — report system with queue, slay, respawn, player notes, admin whisper, mute list
+- **💰 Economy & rewards** — daily scrap/RP reward, playtime tracker, top leaderboard (kills/playtime/KD)
+- **⚔️ Combat intel** — death history, killer lookup, weapon stats (16 weapons), item comparison, loot finder
+- **🏠 Building helpers** — TC scanner (200m), cupboard coverage checker, decay scan
+- **🔔 Notification system** — night alerts, event subscriptions, notification list/clear
 
 ---
 
@@ -44,40 +46,30 @@ The AI agent is **optional**. Configure LM Studio and the plugin responds locall
 | `anthropic` | `OpenAIApiKey` as `x-api-key` | Claude via Anthropic API |
 | `openrouter` | `OpenAIApiKey` | 100+ models, free tier available |
 
-### 🚀 Full Teleport System (13 commands)
-- **`tpr <player>`** — request to teleport TO a player (60s request timeout, auto-expires)
-- **`tpa <player>`** — ask a player to teleport TO YOU
-- **`tpc` / `accept`** — accept an incoming teleport request
-- **`tpd` / `deny`** — deny an incoming request
-- **`home [name]`** — teleport to a saved home (lists all if no name given)
-- **`sethome [name]`** — save current position (default "main", max 5 per player)
-- **`removehome <name>`** — delete a saved home
-- **`town`** — instant teleport to Outpost (configurable coords)
-- **`bandit`** — instant teleport to Bandit Camp (configurable coords)
-- **`back`** — return to position before your last teleport (works after any TP command)
-- **`rtele`** — random teleport to a safe random spot on the map
-- **`pos` / `coords`** — show X/Y/Z, grid reference (e.g. "E-7"), nearest monument
-- Warmup countdown (configurable) — moving during countdown cancels the teleport
+---
 
-### 🔐 Security & Base Management
-- Role-based access: `user` → `vip` → `mod` → `admin`
-- Alerts: raid (explosion detection), decay, breach, turret kills, access logs
-- Base management: doors, lights, turrets, auth list, TC authorization
-- Automation rules: time-based, raid-triggered, player-join triggers
-- Decay monitoring with configurable warning hours
+## All Commands (`/db <command>`)
 
-### 📊 Intel & Tracking
-- Player tracking: online status, K/D, session time, first seen
-- Raid history: location, outcome, attackers, defenders, loot collected
-- Map markers: danger zones, patrol routes, base locations
-- Grid map with coordinates
-- Leaderboard and player stats
-
-### 📡 MCP Bridge (optional)
-- Plugin connects to MCP server over WebSocket (`ws://host:port`)
-- MCP server: stdio for Claude Desktop, WebSocket for web agents
-- Game events push to AI agent in real-time: alerts, raids, camera usage, player joins/leaves, AI chat
-- When using local AI (`lmstudio`/`openai`/etc.), MCP is not required
+| Category | Commands |
+|---|---|
+| **Help** | `help`, `terminal`, `info`, `whoami`, `credits`, `changelog`, `version`, `h` |
+| **CCTV** | `cameras`, `view`, `control`, `ptz`, `recordings` |
+| **Security** | `security`, `alerts`, `ack`, `access`, `scan`, `threat`, `lockdown`, `sos` |
+| **Base** | `base`, `doors`, `door`, `lights`, `light`, `turrets`, `turret`, `decay`, `upkeep`, `auth`, `authorize` |
+| **Chat** | `ask <msg>`, `chat` (opens CUI panel), `history` |
+| **Teleport** | `tpr <player>`, `tpa <player>`, `tpc`/`accept`, `tpd`/`deny`, `home [name]`, `sethome [name]`, `removehome [name]`, `town`, `bandit`, `back`, `rtele`, `pos`/`coords` |
+| **Messaging** | `msg <player> <message>`, `ignore <player>`, `unignore <player>`, `afk`, `team <msg>`, `broadcast`/`bc` |
+| **Moderation** | `report <player> <reason>`, `slay <player>`, `respawn <player>`, `notes <player> [view/add/remove/clear]`, `adminmsg <player> <msg>`, `mutelist`, `kick`, `ban`, `unban`, `freeze`, `heal`, `give` |
+| **Intel** | `players`, `player <name>`, `track <name>`, `history`, `leaderboard`, `stats`, `radar`, `loot`, `map`, `markers`, `marker`, `near`, `deaths`, `kills`, `kd`, `death [player]`, `killer [player]`, `weapon <name>`, `compare <item1> <item2>` |
+| **Trading** | `shop`, `sell <item> <price>`, `buy <item>`, `price <item>`, `vending`, `listings`, `market` |
+| **Economy** | `daily` (claim reward), `playtime` (session/today/total), `top [kills|playtime|kd]` (leaderboard) |
+| **Kits** | `kits` (list), `kit <name>` (redeem: starter/pvp/building/mini) |
+| **Building** | `tc` (tool cupboard nearby), `cupsize` (cupboard coverage), `decaycheck` (structures within radius) |
+| **Notifications** | `night` (toggle night alert), `notify`/`notifications` (list/clear), `subscribe <event>` (night/raid/decay/events) |
+| **Utility** | `time`, `weather`, `wipe`, `monuments`/`monu`, `events`, `server`, `uptime` |
+| **Automation** | `automation`, `auto <rule>` |
+| **Fun** | `8ball`, `flip`, `roll`, `rps`, `joke`, `fortune`, `bet`, `quote`, `events`, `recipes`, `blueprint`, `research`, `news` |
+| **Admin** | `admin`, `teleport`/`tp`, `spawn`, `wipe`, `mark`, `bookmarks`, `bookmark`, `removealt` |
 
 ---
 
@@ -87,38 +79,23 @@ The AI agent is **optional**. Configure LM Studio and the plugin responds locall
 ```bash
 cp src/DuckBotMod.cs /path/to/rust/server/oxide/plugins/RustDuckBot.cs
 ```
-Reload from server console:
-```
-oxide.reload RustDuckBot
-```
+Reload from server console: `oxide.reload RustDuckBot`
 
 ### 2. Configure AI (edit `oxide/config/RustDuckBot.json`)
 
 **LM Studio (local, no API key):**
 ```json
-{
-  "AgentProvider": "lmstudio",
-  "LMStudioUrl": "http://localhost:1234",
-  "LMStudioModel": "qwen3.5-9b"
-}
+{ "AgentProvider": "lmstudio", "LMStudioUrl": "http://localhost:1234", "LMStudioModel": "qwen3.5-9b" }
 ```
 
 **DuckBot MCP agent:**
 ```json
-{
-  "AgentProvider": "duckbot",
-  "AgentConfig": "http://localhost:18797"
-}
+{ "AgentProvider": "duckbot", "AgentConfig": "http://localhost:18797" }
 ```
 
 **OpenRouter (free tier):**
 ```json
-{
-  "AgentProvider": "openrouter",
-  "OpenAIApiKey": "sk-or-...",
-  "OpenAIBaseUrl": "https://openrouter.ai/api/v1",
-  "OpenAIModel": "google/gemini-2.0-flash-exp:free"
-}
+{ "AgentProvider": "openrouter", "OpenAIApiKey": "sk-or-...", "OpenAIBaseUrl": "https://openrouter.ai/api/v1", "OpenAIModel": "google/gemini-2.0-flash-exp:free" }
 ```
 
 ### 3. Start MCP bridge (only needed for `duckbot` provider)
@@ -128,38 +105,16 @@ cd mcp && npm install && npm start
 
 ### 4. Use in-game
 ```
-/db help           all commands
-/db chat           open chat panel (also opens automatically at computer station)
-/db cameras        list CCTV cameras
-/db security       alert dashboard
-/db ask <msg>      chat with AI
-/db home           list your homes
-/db sethome main   save a home
-/db town            teleport to Outpost
-/db bandit          teleport to Bandit Camp
-/db pos             show your coordinates
-/db radar           nearby players
-/db lockdown        admin: lock down server
+/db help              all commands
+/db chat              open chat panel (also auto-opens at computer station)
+/db home             list your homes
+/db sethome main      save a home
+/db town / bandit     quick TP to Outpost / Bandit Camp
+/db daily             claim daily scrap reward
+/db top               server leaderboard
+/db weapon ak47       weapon stats
+/db tc                find nearby tool cupboards
 ```
-
----
-
-## All Commands (`/db <command>`)
-
-| Category | Commands |
-|---|---|
-| **Help** | `help`, `terminal`, `info`, `whoami`, `credits`, `changelog`, `version` |
-| **CCTV** | `cameras`, `view`, `control`, `ptz`, `recordings` |
-| **Security** | `security`, `alerts`, `ack`, `access`, `scan`, `threat`, `lockdown`, `sos` |
-| **Base** | `base`, `doors`, `door`, `lights`, `light`, `turrets`, `turret`, `decay`, `upkeep`, `auth`, `authorize` |
-| **Chat** | `ask <msg>`, `chat` (opens CUI panel), `history` |
-| **Teleport** | `tpr <player>`, `tpa <player>`, `tpc`/`accept`, `tpd`/`deny`, `home [name]`, `sethome [name]`, `removehome <name>`, `town`, `bandit`, `back`, `rtele`, `pos`/`coords` |
-| **Intel** | `players`, `player <name>`, `track <name>`, `history`, `leaderboard`, `stats`, `radar`, `loot`, `map`, `markers`, `marker`, `near`, `deaths`, `kills`, `kd` |
-| **Trading** | `shop`, `sell <item> <price>`, `buy <item>`, `price <item>`, `vending`, `listings`, `market` |
-| **Automation** | `automation`, `auto <rule>` |
-| **Fun** | `8ball`, `flip`, `roll`, `rps`, `joke`, `fortune`, `bet`, `quote`, `events`, `recipes`, `blueprint`, `research`, `news` |
-| **Admin** | `admin`, `kick`, `ban`, `unban`, `mute`, `freeze`, `heal`, `give`, `teleport`/`tp`, `spawn`, `tpa`, `wipe`, `mark`, `bookmarks`, `bookmark`, `removealt` |
-| **Utility** | `time`, `weather`, `wipe`, `monuments`/`monu`, `events`, `recipes`, `kits`, `info`, `server` |
 
 ---
 
@@ -167,14 +122,17 @@ cd mcp && npm install && npm start
 
 ```
 rustduckbot.use          # Default — basic access
-rustduckbot.vip          # Camera PTZ, security scans, alerts, teleport (tpr/tpa/home/town/bandit/etc.)
-rustduckbot.mod          # Player lookup, kick, activity review, tpa (accept others)
-rustduckbot.admin        # Ban, lockdown, spawn, give, automation changes, all admin commands
+rustduckbot.vip          # Camera PTZ, alerts, teleport (tpr/tpa/home/town/bandit/etc.)
+rustduckbot.mod          # Player lookup, kick, report review, notes, activity review
+rustduckbot.admin        # Ban, slay, lockdown, spawn, give, automation changes
 rustduckbot.security     # Security system access
 rustduckbot.automation   # Automation rule management
 rustduckbot.trading      # Trading and shop access
 rustduckbot.intel        # Intel and tracking access
 rustduckbot.teleport     # Teleport commands (tpr, tpa, home, town, bandit, etc.)
+rustduckbot.moderation   # Report, slay, respawn, notes, adminmsg, mutelist
+rustduckbot.afk          # AFK mode, night alert, event subscriptions
+rustduckbot.economy      # Daily reward, playtime, leaderboard
 
 oxide.grant user <steam_id> rustduckbot.vip
 oxide.grant user <steam_id> rustduckbot.mod
@@ -185,7 +143,7 @@ oxide.grant user <steam_id> rustduckbot.admin
 
 ## Configuration Reference
 
-Full config is written to `oxide/config/RustDuckBot.json` on first load. Key fields:
+Full config is written to `oxide/config/RustDuckBot.json` on first load.
 
 ### AI Settings
 | Field | Default | Description |
@@ -193,10 +151,10 @@ Full config is written to `oxide/config/RustDuckBot.json` on first load. Key fie
 | `AgentProvider` | `duckbot` | `duckbot` \| `lmstudio` \| `openai` \| `anthropic` \| `openrouter` |
 | `AgentConfig` | `http://localhost:18797` | URL for DuckBot MCP agent |
 | `LMStudioUrl` | `http://localhost:1234` | LM Studio HTTP URL |
-| `LMStudioModel` | `local-model` | Model name (must match loaded model) |
+| `LMStudioModel` | `local-model` | Model name |
 | `OpenAIApiKey` | _(empty)_ | API key for OpenAI / Anthropic / OpenRouter |
 | `OpenAIBaseUrl` | `https://api.openai.com/v1` | OpenAI-compatible base URL |
-| `OpenAIModel` | `gpt-4o-mini` | Model name for OpenAI-compatible APIs |
+| `OpenAIModel` | `gpt-4o-mini` | Model name |
 
 ### Teleport Settings
 | Field | Default | Description |
@@ -209,8 +167,34 @@ Full config is written to `oxide/config/RustDuckBot.json` on first load. Key fie
 | `AllowBanditTeleport` | `true` | Allow `/db bandit` |
 | `TownCooldownMinutes` | `30` | Minutes between `/db town` uses |
 | `BanditCooldownMinutes` | `60` | Minutes between `/db bandit` uses |
-| `OutpostX/Y/Z` | `-94.5 / 3.0 / -55.4` | Outpost coordinates (customize for your map) |
-| `BanditX/Y/Z` | `-222.6 / 2.0 / 6.7` | Bandit Camp coordinates (customize for your map) |
+| `OutpostX/Y/Z` | `-94.5 / 3.0 / -55.4` | Outpost coordinates |
+| `BanditX/Y/Z` | `-222.6 / 2.0 / 6.7` | Bandit Camp coordinates |
+
+### Moderation & AFK
+| Field | Default | Description |
+|---|---|---|
+| `MaxPlayerNotes` | `20` | Max notes per player (mod+) |
+| `EnableReportSystem` | `true` | Enable `/db report` command |
+| `ReportCooldownMinutes` | `5` | Minutes between reports |
+| `AFKTimeoutMinutes` | `10` | Minutes before AFK flag |
+| `AFKKickMinutes` | `30` | Minutes before auto-kick |
+| `AutoKickAFK` | `true` | Enable AFK auto-kick |
+
+### Economy & Rewards
+| Field | Default | Description |
+|---|---|---|
+| `EnableDailyReward` | `true` | Enable `/db daily` |
+| `DailyRewardScrap` | `100` | Scrap per daily reward |
+| `DailyRewardRP` | `20` | RP per daily reward |
+| `PlaytimeBonusMinutes` | `60` | Minutes played to unlock daily |
+
+### Notifications & Building
+| Field | Default | Description |
+|---|---|---|
+| `MaxNotificationsPerPlayer` | `50` | Max stored notifications |
+| `EnableNightAlert` | `true` | Enable night alert toggle |
+| `DecayScanRadius` | `200` | Meters for `/db decaycheck` |
+| `MaxPrivateMessageLength` | `500` | Max chars per PM |
 
 ### General Settings
 | Field | Default | Description |
@@ -226,9 +210,22 @@ Full config is written to `oxide/config/RustDuckBot.json` on first load. Key fie
 
 ---
 
+## Version History
+
+| Version | Commit | What |
+|---|---|---|
+| `318dde6` | — | Original 3,082-line build, 136 commands |
+| `250c19d` | **v1.3.0** | Computer Station hooks + CUI overlay + MCP events |
+| `fcdec32` | **v1.3.1** | CUI chat panel + LM Studio / OpenAI / Claude / OpenRouter |
+| `daef122` | **v1.3.2** | 10 null-safe MCP calls, merged CanClientMove, version sync |
+| `5d3a6b4` | **v1.3.3** | 13 teleport commands + warmup + home system + back + coords |
+| `d9fb378` | **v1.4.0** | 30 new commands: moderation, economy, combat intel, building, notifications (176+ total commands) |
+
+---
+
 ## File Structure
 ```
-src/DuckBotMod.cs              # Oxide/uMod Rust plugin (C#, ~4,800 lines)
+src/DuckBotMod.cs              # Oxide/uMod Rust plugin (C#, ~5,400 lines, 176 commands)
 mcp/server/src/index.ts        # MCP server + WebSocket bridge (TypeScript)
 mcp/test/index.test.mjs        # MCP behavior tests
 skills/rust-duckbot/SKILL.md   # Agent-facing skill docs
@@ -236,7 +233,7 @@ docs/
   SETUP.md                     # Detailed setup guide
   API.md                       # API reference
   AGENT_SWAPPING.md            # How to swap between different AI agents
-  OXIDE_PATTERNS.md            # Rust/Oxide development patterns + CCTV research
+  OXIDE_PATTERNS.md            # Rust/Oxide development patterns
   RESEARCH.md                  # Research notes
 ```
 
@@ -247,31 +244,21 @@ docs/
 | Variable | Default | Purpose |
 |---|---|---|
 | `RUST_DUCKBOT_BRIDGE_HOST` | `127.0.0.1` | WebSocket bridge host |
-| `RUST_DUCKBOT_BRIDGE_PORT` | `3851` | WebSocket bridge port used by the plugin |
-| `MCP_STDIO` | `1` | Enable stdio MCP transport (Claude Desktop) |
-| `RUST_DUCKBOT_ADMIN_TOKEN` | _(none)_ | Extra secret for dangerous admin tools |
-| `RUST_DUCKBOT_ALLOWED_COMMANDS` | _(safe list)_ | Comma-separated whitelist for `rust_admin_command` |
-| `RUST_DUCKBOT_SEED_DEMO` | `1` | Set `0` to disable demo camera/player seed data |
+| `RUST_DUCKBOT_BRIDGE_PORT` | `3851` | WebSocket bridge port |
+| `MCP_STDIO` | `1` | Enable stdio MCP transport |
+| `RUST_DUCKBOT_ADMIN_TOKEN` | _(none)_ | Extra secret for admin tools |
+| `RUST_DUCKBOT_ALLOWED_COMMANDS` | _(safe list)_ | Comma-separated whitelist for admin commands |
 
 ---
 
-## MCP Tool Surface (for agent integrations)
+## Safety Notes
 
-When running with a full AI agent via MCP, these tools are available:
-
-| Tool | Description |
-|---|---|
-| `rust_chat_send` | Send a chat message to a player |
-| `rust_view_camera` | Get current camera feed info |
-| `rust_camera_control` | Control PTZ on a camera |
-| `rust_player_list` | List online players |
-| `rust_admin_command` | Run a whitelisted RCON/console command |
-| `rust_kick_player` | Kick a player |
-| `rust_ban_player` | Ban a player |
-| `rust_lockdown` | Enable/disable server lockdown |
-| `rust_alert_acknowledge` | Acknowledge an alert |
-| `rust_map_marker` | Place a marker on the in-game map |
-| `rust_automation_rule` | Create/get/delete automation rules |
+- Keep the MCP bridge bound to **localhost** unless you know why it must be exposed
+- Use `RUST_DUCKBOT_ADMIN_TOKEN` and a narrow allowed commands list on public servers
+- Admin commands are role-checked at the plugin level
+- Teleport warmup prevents abuse — moving cancels, but mods/admins bypass it
+- Customise `OutpostX/Y/Z` and `BanditX/Y/Z` in config for custom maps
+- Report queue is in-memory — resets on plugin reload (persistent storage can be added via data files)
 
 ---
 
@@ -281,13 +268,3 @@ When running with a full AI agent via MCP, these tools are available:
 - [Agent Swapping Guide](docs/AGENT_SWAPPING.md)
 - [Oxide Patterns](docs/OXIDE_PATTERNS.md)
 - [Research Notes](docs/RESEARCH.md)
-
----
-
-## Safety Notes
-
-- Keep the MCP bridge bound to **localhost** unless you know why it must be exposed
-- Use `RUST_DUCKBOT_ADMIN_TOKEN` and a narrow `RUST_DUCKBOT_ALLOWED_COMMANDS` list on public servers
-- Admin commands are role-checked at the plugin level
-- Teleport warmup is designed to prevent abuse — players who move get cancelled, but determined admins can bypass with `mod` role
-- Customise `OutpostX/Y/Z` and `BanditX/Y/Z` in config for custom maps
