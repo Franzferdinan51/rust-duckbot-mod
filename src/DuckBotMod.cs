@@ -12,7 +12,7 @@ using UnityEngine;
 
 namespace RustDuckBot
 {
-    [Info("RustDuckBot", "1.3.0", "Duckets")]
+    [Info("RustDuckBot", "1.3.1", "Duckets")]
     [Description("AI-powered computer station with DuckBot. CCTV, security, base management, trading, automation, intel, and more.")]
     public class RustDuckBot : RustPlugin
     {
@@ -798,7 +798,7 @@ namespace RustDuckBot
             _radarTimer = new Timer(RadarCallback, null, 10000, 10000);
 
             SendServerStatus();
-            LogActivity("system", "Server initialized", $"RustDuckBot v1.2.0 started. Cameras: {_cameras.Count}");
+            LogActivity("system", "Server initialized", $"RustDuckBot v1.3.1 started. Cameras: {_cameras.Count}");
         }
 
         private void OnPlayerConnected(BasePlayer player)
@@ -808,7 +808,7 @@ namespace RustDuckBot
             session.LastSeen = DateTime.Now;
             TrackPlayer(player.UserIDString, player.displayName);
 
-            _mcpClient.SendMessage(new { type = "player_joined", playerId = player.UserIDString, playerName = player.displayName, role = session.Role, time = DateTime.Now.ToString("o") });
+            _mcpClient?.SendMessage(new { type = "player_joined", playerId = player.UserIDString, playerName = player.displayName, role = session.Role, time = DateTime.Now.ToString("o") });
 
             // Check for alerts
             var alerts = GetUnacknowledgedAlerts(player.UserIDString);
@@ -841,7 +841,7 @@ namespace RustDuckBot
 
             UpdateTrackedPlayer(player.UserIDString, lastSeen: DateTime.Now, position: player.transform.position);
 
-            _mcpClient.SendMessage(new { type = "player_left", playerId = player.UserIDString, playerName = player.displayName, reason = reason, time = DateTime.Now.ToString("o") });
+            _mcpClient?.SendMessage(new { type = "player_left", playerId = player.UserIDString, playerName = player.displayName, reason = reason, time = DateTime.Now.ToString("o") });
             LogActivity("system", "Player disconnected", $"{player.displayName}: {reason}", player.UserIDString, player.displayName);
         }
 
@@ -882,6 +882,13 @@ namespace RustDuckBot
         {
             LogAccess(player.UserIDString, player.displayName, door.ShortPrefabName, "open", true, GetCameraNear(door.transform.position)?.Id);
             door.SetFlag(BaseEntity.Flags.Open, true);
+            if (_computerSessions.TryGetValue(player.userID, out var session) && session.TerminalOpen)
+            {
+                session.Station = null;
+                session.TerminalOpen = false;
+                session.IsWatchingCCTV = false;
+                session.ActiveCameraId = null;
+            }
         }
 
         private void OnDoorClosed(Door door)
@@ -1865,7 +1872,7 @@ namespace RustDuckBot
             PrintToChat(player, $"<color=#888>Last activity:</color> {camInfo.LastActivity:HH:mm}");
 
             LogAccess(player.UserIDString, player.displayName, $"camera_{camInfo.Id}", "view", true, camInfo.Id);
-            _mcpClient.SendMessage(new { type = "camera_view", playerId = player.UserIDString, cameraId = camInfo.Id, cameraName = camInfo.Name });
+            _mcpClient?.SendMessage(new { type = "camera_view", playerId = player.UserIDString, cameraId = camInfo.Id, cameraName = camInfo.Name });
         }
 
         private void ControlCamera(BasePlayer player, PlayerSession session, string args)
@@ -2728,7 +2735,7 @@ namespace RustDuckBot
 
             // Send to MCP (skip if we used a local provider without MCP)
             if (_mcpClient?.IsConnected() == true)
-                _mcpClient.SendMessage(new { type = "ai_chat", playerId = player.UserIDString, playerName = player.displayName, message, response });
+                _mcpClient?.SendMessage(new { type = "ai_chat", playerId = player.UserIDString, playerName = player.displayName, message, response });
         }
 
         private void SearchKnowledge(BasePlayer player, PlayerSession session, string query)
@@ -2883,8 +2890,8 @@ namespace RustDuckBot
             if (string.IsNullOrWhiteSpace(command)) { PrintToChat(player, "Usage: /db admin <rcon_command>"); return; }
             ConsoleSystemRun.ServerCommand(command);
             PrintToChat(player, $"<color=#00FF00>Admin:</color> {command}");
-            _mcpClient.SendMessage(new { type = "admin_command", playerId = player.UserIDString, command });
             LogActivity("admin", "RCON", $"{player.displayName}: {command}", player.UserIDString, player.displayName);
+            _mcpClient?.SendMessage(new { type = "admin_command", playerId = player.UserIDString, command });
         }
 
         private void HandleKick(BasePlayer player, PlayerSession session, string args)
@@ -2897,8 +2904,8 @@ namespace RustDuckBot
             var reason = parts.Length > 1 ? parts[1] : "Kicked by staff";
             target.Kick(reason);
             PrintToChat(player, $"Kicked: {target.displayName}");
-            _mcpClient.SendMessage(new { type = "kick", playerId = player.UserIDString, targetId = target.UserIDString, reason });
             LogActivity("admin", "Kick", $"{player.displayName} kicked {target.displayName}: {reason}", player.UserIDString, player.displayName);
+            _mcpClient?.SendMessage(new { type = "kick", playerId = player.UserIDString, targetId = target.UserIDString, reason });
         }
 
         private void HandleBan(BasePlayer player, PlayerSession session, string args)
@@ -2913,8 +2920,8 @@ namespace RustDuckBot
             ConsoleSystemRun.ServerCommand($"banid {target.UserIDString} \"{reason}\" {duration}");
             target.Kick(reason);
             PrintToChat(player, $"Banned: {target.displayName} ({duration})");
-            _mcpClient.SendMessage(new { type = "ban", playerId = player.UserIDString, targetId = target.UserIDString, reason, duration });
             LogActivity("admin", "Ban", $"{player.displayName} banned {target.displayName}: {reason} ({duration})", player.UserIDString, player.displayName);
+            _mcpClient?.SendMessage(new { type = "ban", playerId = player.UserIDString, targetId = target.UserIDString, reason, duration });
         }
 
         private void HandleUnban(BasePlayer player, PlayerSession session, string steamId)
@@ -3254,7 +3261,7 @@ namespace RustDuckBot
         // MISC
         // =====================================================================
 
-        private void ShowVersion(BasePlayer player) { PrintToChat(player, "<color=#FFD700>RustDuckBot v1.2.0</color> by Duckets | AI: DuckBot MCP Bridge"); }
+        private void ShowVersion(BasePlayer player) { PrintToChat(player, "<color=#FFD700>RustDuckBot v1.3.1</color> by Duckets | AI: " + (_localAI?.ProviderName ?? _config.AgentProvider) + " MCP Bridge"); }
         private void ShowCredits(BasePlayer player) { PrintToChat(player, "Created by <color=#FFD700>Duckets</color> | Powered by <color=#FFD700>DuckBot AI</color>"); }
         private void ShowChangelog(BasePlayer player) { PrintToChat(player, "v1.2.0: Added 50+ commands, automation, security, trading, intel, games"); }
         private void ShowDonateInfo(BasePlayer player) { PrintToChat(player, "Donations help keep the server running! Contact admin."); }
@@ -3476,7 +3483,7 @@ namespace RustDuckBot
                 Location = location
             };
             _activeAlerts.Add(alert);
-            _mcpClient.SendMessage(new { type = "alert", alertId = alert.Id, title, message, severity });
+            _mcpClient?.SendMessage(new { type = "alert", alertId = alert.Id, title, message, severity });
 
             if (_config.EnableSmartAlerts && location.HasValue)
             {
@@ -3755,13 +3762,13 @@ namespace RustDuckBot
             var players = BasePlayer.activePlayerList;
             var playerList = players.Select(p => new { id = p.UserIDString, name = p.displayName, ping = p.net?.connection?.avgPing ?? 0, role = GetOrCreateSession(p).Role, connectedAt = GetOrCreateSession(p).SessionStart.ToString("o") }).ToList();
 
-            _mcpClient.SendMessage(new
+            _mcpClient?.SendMessage(new
             {
                 type = "heartbeat",
                 time = DateTime.Now.ToString("o"),
                 playerCount = players.Count,
                 players = playerList,
-                mcpConnected = _mcpClient.IsConnected()
+                mcpConnected = _mcpClient?.IsConnected() == true
             });
         }
 
@@ -3812,7 +3819,7 @@ namespace RustDuckBot
         private void SendServerStatus()
         {
             var uptime = Time.realtimeSinceStartup;
-            _mcpClient.SendMessage(new
+            _mcpClient?.SendMessage(new
             {
                 type = "server_status",
                 uptime = $"{uptime / 3600:F1}h",
@@ -3947,6 +3954,13 @@ namespace RustDuckBot
                 await _ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, _cts.Token);
             }
             catch { }
+        }
+
+        /// <summary>Safe wrapper: null-guards the MCP client and checks IsConnected before sending.
+        /// Use this instead of bare _mcpClient.SendMessage(...) throughout the plugin.</summary>
+        private void SafeMCPSend(object payload)
+        {
+            try { _mcpClient?.SendMessage(payload); } catch { }
         }
 
         private async Task SendAsync(object message)
