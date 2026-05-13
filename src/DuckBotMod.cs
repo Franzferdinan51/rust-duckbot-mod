@@ -53,6 +53,19 @@ namespace RustDuckBot
             public bool EnableGridMap = true;
             public bool EnablePlayerTracking = true;
             public bool EnableSmartAlerts = true;
+            // Teleport settings
+            public int MaxHomesPerPlayer = 5;
+            public int TeleportRequestSeconds = 60;
+            public int TeleportCooldownSeconds = 120;
+            public int TeleportWarmupSeconds = 10; // seconds before tp executes
+            public bool AllowTeleportDuringRaid = false;
+            public bool AllowTownTeleport = true;
+            public bool AllowBanditTeleport = true;
+            public int TownCooldownMinutes = 30;
+            public int BanditCooldownMinutes = 60;
+            // Monument positions for /town, /bandit
+            public float OutpostX = -94.5f, OutpostY = 3.0f, OutpostZ = -55.4f;
+            public float BanditX = -222.6f, BanditY = 2.0f, BanditZ = 6.7f;
         }
 
         protected override void LoadConfig()
@@ -135,6 +148,7 @@ namespace RustDuckBot
 
         // Computer Station / CCTV watching
         private Dictionary<ulong, ComputerStationSession> _computerSessions = new Dictionary<ulong, ComputerStationSession>();
+        private Dictionary<ulong, TeleportRequest> _teleportRequests = new Dictionary<ulong, TeleportRequest>();
         private HashSet<string> _monumentCameraCodes = new HashSet<string>();
         private HashSet<string> _playerOwnedCameraIds = new HashSet<string>();
 
@@ -429,6 +443,16 @@ namespace RustDuckBot
             public int ResourcesGathered;
             public bool IsOnline = true;
             public DateTime LastSeen = DateTime.Now;
+            // Teleport / home system
+            public Dictionary<string, Position3D> Homes = new Dictionary<string, Position3D>();
+            public DateTime? LastTeleport;
+            public DateTime? LastTownTp;
+            public DateTime? LastBanditTp;
+            // Warmup teleport state
+            public bool _pendingTeleport;
+            public Position3D _teleportDestination;
+            public string _teleportReason;
+            public Position3D _teleportStartPos;
         }
 
         private class ChatEntry
@@ -640,6 +664,18 @@ namespace RustDuckBot
         // INTEL / TRACKING
         // =====================================================================
 
+        // Teleport request (tpr / tpa)
+        private class TeleportRequest
+        {
+            public ulong FromId;
+            public string FromName;
+            public ulong ToId;
+            public string ToName;
+            public DateTime RequestTime;
+            public bool IsFrom; // true = From wants to go TO To (tpr), false = From wants To to come HERE (tpa)
+            public Vector3? Location; // for tpa: where the target should teleport to
+        }
+
         private class TrackedPlayer
         {
             public string PlayerId;
@@ -714,6 +750,7 @@ namespace RustDuckBot
             permission.RegisterPermission("rustduckbot.automation", this);
             permission.RegisterPermission("rustduckbot.trading", this);
             permission.RegisterPermission("rustduckbot.intel", this);
+            permission.RegisterPermission("rustduckbot.teleport", this);
 
             // Chat commands - all under /db
             cmd.AddChatCommand("duckbot", this, nameof(CmdDuckBot));
@@ -1063,16 +1100,26 @@ namespace RustDuckBot
         private object CanClientMove(BasePlayer player, Proto.EntitySnapshot snapshot)
         {
             if (player == null) return null;
-            if (!_computerSessions.TryGetValue(player.userID, out var session))
+            var session = GetOrCreateSession(player);
+
+            // Cancel warmup teleport if player moves during countdown
+            if (session._pendingTeleport && session._teleportStartPos != null)
+            {
+                var currentPos = player.transform.position;
+                var startPos = session._teleportStartPos.ToVector3();
+                if (Vector3.Distance(currentPos, startPos) > 1f)
+                {
+                    session._pendingTeleport = false;
+                    PrintToChat(player, "<color=#FF4444>Teleport cancelled:</color> you moved!");
+                }
+            }
+
+            // Keep player seated if they're at the computer station
+            if (!_computerSessions.TryGetValue(player.userID, out var compSession))
+                return null;
+            if (compSession.TerminalOpen && compSession.IsWatchingCCTV)
                 return null;
 
-            // If player has the terminal open, prevent normal movement
-            //，让他们保持在computer station的位置
-            if (session.TerminalOpen && session.IsWatchingCCTV)
-            {
-                // Allow releasing from station (PRESS USE again to exit)
-                return null;
-            }
             return null;
         }
 
@@ -1576,6 +1623,19 @@ namespace RustDuckBot
                 case "give": HandleGive(player, session, argStr); break;
                 case "teleport": case "tp": HandleTeleport(player, session, argStr); break;
                 case "spawn": HandleSpawn(player, session, argStr); break;
+
+                // === TELEPORT ===
+                case "tpr": case "tpa": HandleTPR(player, session, argStr); break;
+                case "tpc": case "accept": HandleTPC(player, session); break;
+                case "tpd": case "deny": HandleTPD(player, session); break;
+                case "home": case "h": HandleHome(player, session, argStr); break;
+                case "sethome": HandleSetHome(player, session, argStr); break;
+                case "removehome": HandleRemoveHome(player, session, argStr); break;
+                case "town": HandleTown(player, session); break;
+                case "bandit": HandleBandit(player, session); break;
+                case "back": HandleBack(player, session); break;
+                case "rtele": case "rt": HandleRTele(player, session, argStr); break;
+                case "pos": case "coords": HandleCoords(player, session); break;
 
                 // === UTILITY ===
                 case "time": ShowTime(player, session); break;
@@ -3015,6 +3075,341 @@ namespace RustDuckBot
             PrintToChat(player, $"Day: {World.Timeframes.GetValueOrDefault("day", 1)}");
             PrintToChat(player, $"Sun: {(hours >= 6 && hours < 18 ? "☀️" : "🌙")}");
         }
+
+        // =====================================================================
+        // TELEPORT SYSTEM
+        // =====================================================================
+
+        // /db tpr <player> — request to teleport TO a player
+        // /db tpa <player> — ask a player to teleport TO YOU
+        private void HandleTPR(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, "rustduckbot.teleport") &&
+                !HasRoleOrHigher(session.Role, "vip"))
+            { PrintToChat(player, "<color=#FF4444>No permission for teleport commands.</color>"); return; }
+
+            if (string.IsNullOrWhiteSpace(args))
+            { PrintToChat(player, "<color=#FFD700>Usage:</color> /db tpr <player> OR /db tpa <player>"); return; }
+
+            var parts = args.Split(' ', 2);
+            var targetName = parts[0].Trim();
+            bool goToTarget = parts.Length == 0 || (args.StartsWith("tpr ", StringComparison.OrdinalIgnoreCase) || args.StartsWith("tpa ", StringComparison.OrdinalIgnoreCase));
+
+            // Check if it's a tpa (ask target to come HERE) vs tpr (go TO target)
+            bool isTPA = args.StartsWith("tpa ", StringComparison.OrdinalIgnoreCase);
+            bool isTPR = args.StartsWith("tpr ", StringComparison.OrdinalIgnoreCase);
+
+            var target = FindPlayer(targetName);
+            if (target == null)
+            { PrintToChat(player, $"<color=#FF4444>Player not found:</color> {targetName}"); return; }
+            if (target == player)
+            { PrintToChat(player, "<color=#FF4444>You can't teleport to yourself.</color>"); return; }
+
+            // Check cooldown
+            if (_config.TeleportCooldownSeconds > 0 && session.LastTeleport.HasValue)
+            {
+                var elapsed = (DateTime.Now - session.LastTeleport.Value).TotalSeconds;
+                if (elapsed < _config.TeleportCooldownSeconds)
+                {
+                    var remaining = _config.TeleportCooldownSeconds - (int)elapsed;
+                    PrintToChat(player, $"<color=#FF4444>Cooldown:</color> wait {remaining}s");
+                    return;
+                }
+            }
+
+            // Check if they already have a pending request
+            foreach (var kvp in _teleportRequests)
+            {
+                if (kvp.Value.FromId == player.userID)
+                {
+                    PrintToChat(player, "<color=#FF4444>You already have a pending teleport request.</color>");
+                    PrintToChat(player, $"<color=#FFD700>Use /db tpc</color> to see/accept incoming requests.");
+                    return;
+                }
+            }
+
+            var req = new TeleportRequest
+            {
+                FromId = player.userID,
+                FromName = player.displayName,
+                ToId = target.userID,
+                ToName = target.displayName,
+                RequestTime = DateTime.Now,
+                IsFrom = !isTPA // tpr = From goes TO To. tpa = From asks To to come HERE
+            };
+
+            _teleportRequests[target.userID] = req;
+
+            // Notify the sender
+            PrintToChat(player, $"<color=#00FF88>Request sent to {target.displayName}.</color>");
+            PrintToChat(player, $"<color=#FFD700>Expires in {_config.TeleportRequestSeconds}s.</color> Type <color=#FFD700>/db tpd</color> to cancel.");
+
+            // Notify the target
+            var reqType = isTPA ? "to teleport to you" : (isTPR ? "to teleport to them" : "to meet up");
+            PrintToChat(target, $"<color=#FFD700>━━━ TP REQUEST ━━━</color>");
+            PrintToChat(target, $"<color=#4DA6FF>{player.displayName}</color> wants {reqType}.");
+            PrintToChat(target, $"Use <color=#00FF88>/db tpc</color> to accept | <color=#FF4444>/db tpd</color> to deny");
+            PrintToChat(target, $"Expires in {_config.TeleportRequestSeconds}s.");
+
+            // Auto-expire the request
+            timer.Once(_config.TeleportRequestSeconds * 1000f, () =>
+            {
+                if (_teleportRequests.TryGetValue(target.userID, out var r) && r.FromId == player.userID)
+                {
+                    _teleportRequests.Remove(target.userID);
+                    PrintToChat(target, $"<color=#888>TP request from {player.displayName} expired.</color>");
+                    if (target.IsConnected()) PrintToChat(player, $"<color=#888>Request to {target.displayName} expired.</color>");
+                }
+            });
+        }
+
+        // /db tpc OR /db accept — accept incoming teleport request
+        private void HandleTPC(BasePlayer player, PlayerSession session)
+        {
+            if (!_teleportRequests.TryGetValue(player.userID, out var req))
+            { PrintToChat(player, "<color=#FF4444>No pending teleport requests.</color>"); return; }
+
+            var fromPlayer = BasePlayer.FindByID(req.FromId);
+
+            // Check cooldown for the requester
+            var fromSession = GetOrCreateSession(fromPlayer ?? BasePlayer.sleepingPlayerList.FirstOrDefault(p => p.userID == req.FromId));
+            if (_config.TeleportCooldownSeconds > 0 && fromSession?.LastTeleport != null)
+            {
+                var elapsed = (DateTime.Now - fromSession.LastTeleport.Value).TotalSeconds;
+                if (elapsed < _config.TeleportCooldownSeconds)
+                {
+                    PrintToChat(player, $"<color=#FF4444>Requester is on cooldown.</color> Wait {(_config.TeleportCooldownSeconds - (int)elapsed)}s");
+                    _teleportRequests.Remove(player.userID);
+                    return;
+                }
+            }
+
+            _teleportRequests.Remove(player.userID);
+
+            if (req.IsFrom)
+            {
+                // tpr: FROM player teleports TO target (this player)
+                DoTeleport(fromPlayer, player.transform.position, $"Teleported to {player.displayName}");
+            }
+            else
+            {
+                // tpa: FROM player wants TARGET (this player) to come to them
+                DoTeleport(player, fromPlayer?.transform.position ?? new Vector3(), $"Teleported to {req.FromName}");
+            }
+        }
+
+        // /db tpd OR /db deny — deny incoming teleport request
+        private void HandleTPD(BasePlayer player, PlayerSession session)
+        {
+            if (!_teleportRequests.TryGetValue(player.userID, out var req))
+            { PrintToChat(player, "<color=#FF4444>No pending teleport requests.</color>"); return; }
+
+            var fromPlayer = BasePlayer.FindByID(req.FromId);
+            _teleportRequests.Remove(player.userID);
+            PrintToChat(player, "<color=#FF4444>Request denied.</color>");
+            if (fromPlayer?.IsConnected() == true)
+                PrintToChat(fromPlayer, $"<color=#FF4444>{player.displayName} denied your teleport request.</color>");
+        }
+
+        // /db home [name] — teleport to a saved home
+        private void HandleHome(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, "rustduckbot.teleport") &&
+                !HasRoleOrHigher(session.Role, "vip"))
+            { PrintToChat(player, "<color=#FF4444>No permission.</color>"); return; }
+
+            var homes = session.Homes;
+            if (homes.Count == 0)
+            { PrintToChat(player, "<color=#FF4444>No homes saved.</color> Use <color=#FFD700>/db sethome [name]</color>"); return; }
+
+            string homeName = args.Trim().ToLower();
+            Position3D homePos = null;
+
+            if (string.IsNullOrEmpty(homeName))
+            {
+                // List homes
+                PrintToChat(player, "<color=#FFD700>━━━ YOUR HOMES ━━━</color>");
+                foreach (var h in homes)
+                    PrintToChat(player, $"  <color=#4DA6FF>{h.Key}</color> — {h.Value.X:F0},{h.Value.Y:F0},{h.Value.Z:F0}");
+                PrintToChat(player, "<color=#888>Use /db home &lt;name&gt;</color>");
+                return;
+            }
+
+            // Fuzzy match
+            foreach (var h in homes)
+            {
+                if (h.Key.Equals(homeName, StringComparison.OrdinalIgnoreCase) ||
+                    h.Key.Contains(homeName, StringComparison.OrdinalIgnoreCase))
+                { homePos = h.Value; homeName = h.Key; break; }
+            }
+
+            if (homePos == null)
+            { PrintToChat(player, $"<color=#FF4444>Home not found:</color> {args}"); return; }
+
+            DoTeleport(player, homePos.ToVector3(), $"Home: {homeName}");
+        }
+
+        // /db sethome [name] — save current position as home
+        private void HandleSetHome(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, "rustduckbot.teleport") &&
+                !HasRoleOrHigher(session.Role, "vip"))
+            { PrintToChat(player, "<color=#FF4444>No permission.</color>"); return; }
+
+            if (session.Homes.Count >= _config.MaxHomesPerPlayer)
+            { PrintToChat(player, $"<color=#FF4444>Home limit reached ({_config.MaxHomesPerPlayer}).</color> Remove one first: /db removehome <name>"); return; }
+
+            var name = string.IsNullOrWhiteSpace(args) ? "main" : args.Trim().ToLower();
+            session.Homes[name] = new Position3D(player.transform.position);
+            PrintToChat(player, $"<color=#00FF88>Home saved:</color> <color=#FFD700>{name}</color> at {player.transform.position.x:F0},{player.transform.position.y:F0},{player.transform.position.z:F0}");
+        }
+
+        // /db removehome [name] — delete a saved home
+        private void HandleRemoveHome(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, "rustduckbot.teleport") &&
+                !HasRoleOrHigher(session.Role, "vip"))
+            { PrintToChat(player, "<color=#FF4444>No permission.</color>"); return; }
+            if (string.IsNullOrWhiteSpace(args))
+            { PrintToChat(player, "<color=#FFD700>Usage:</color> /db removehome <name>"); return; }
+
+            var name = args.Trim().ToLower();
+            if (!session.Homes.ContainsKey(name))
+            { PrintToChat(player, $"<color=#FF4444>No home named:</color> {name}"); return; }
+
+            session.Homes.Remove(name);
+            PrintToChat(player, $"<color=#00FF88>Home removed:</color> {name}");
+        }
+
+        // /db town — teleport to Outpost
+        private void HandleTown(BasePlayer player, PlayerSession session)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, "rustduckbot.teleport") &&
+                !HasRoleOrHigher(session.Role, "vip"))
+            { PrintToChat(player, "<color=#FF4444>No permission.</color>"); return; }
+            if (!_config.AllowTownTeleport)
+            { PrintToChat(player, "<color=#FF4444>Town teleport is disabled.</color>"); return; }
+
+            if (session.LastTownTp.HasValue && (DateTime.Now - session.LastTownTp.Value).TotalMinutes < _config.TownCooldownMinutes)
+            { PrintToChat(player, $"<color=#FF4444>Town on cooldown.</color> Wait {_config.TownCooldownMinutes - (int)(DateTime.Now - session.LastTownTp.Value).TotalMinutes} min"); return; }
+
+            var pos = new Vector3(_config.OutpostX, _config.OutpostY, _config.OutpostZ);
+            DoTeleport(player, pos, "Town (Outpost)");
+            session.LastTownTp = DateTime.Now;
+        }
+
+        // /db bandit — teleport to Bandit Camp
+        private void HandleBandit(BasePlayer player, PlayerSession session)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, "rustduckbot.teleport") &&
+                !HasRoleOrHigher(session.Role, "vip"))
+            { PrintToChat(player, "<color=#FF4444>No permission.</color>"); return; }
+            if (!_config.AllowBanditTeleport)
+            { PrintToChat(player, "<color=#FF4444>Bandit teleport is disabled.</color>"); return; }
+
+            if (session.LastBanditTp.HasValue && (DateTime.Now - session.LastBanditTp.Value).TotalMinutes < _config.BanditCooldownMinutes)
+            { PrintToChat(player, $"<color=#FF4444>Bandit on cooldown.</color> Wait {_config.BanditCooldownMinutes - (int)(DateTime.Now - session.LastBanditTp.Value).TotalMinutes} min"); return; }
+
+            var pos = new Vector3(_config.BanditX, _config.BanditY, _config.BanditZ);
+            DoTeleport(player, pos, "Bandit Camp");
+            session.LastBanditTp = DateTime.Now;
+        }
+
+        // /db back — return to last position before teleport
+        private void HandleBack(BasePlayer player, PlayerSession session)
+        {
+            if (session.LastPosition == null)
+            { PrintToChat(player, "<color=#FF4444>No previous position.</color>"); return; }
+            DoTeleport(player, session.LastPosition.ToVector3(), "Returned to previous position");
+        }
+
+        // /db rtele — random teleport to a safe position on the map
+        private void HandleRTele(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, "rustduckbot.teleport") &&
+                !HasRoleOrHigher(session.Role, "vip"))
+            { PrintToChat(player, "<color=#FF4444>No permission.</color>"); return; }
+
+            // Generate a random position within map bounds
+            var randomPos = new Vector3(
+                UnityEngine.Random.Range(-500f, 500f),
+                0f,
+                UnityEngine.Random.Range(-500f, 500f)
+            );
+
+            // Raycast down to find ground
+            var ray = new Ray(randomPos + Vector3.up * 200f, Vector3.down);
+            if (Physics.Raycast(ray, out var hit, 300f, LayerMask.GetMask("Terrain", "World")))
+                randomPos = hit.point;
+
+            DoTeleport(player, randomPos, "Random teleport");
+        }
+
+        // /db pos — show current coordinates
+        private void HandleCoords(BasePlayer player, PlayerSession session)
+        {
+            var pos = player.transform.position;
+            var grid = GetGridLocation(pos);
+            PrintToChat(player, "<color=#FFD700>━━━ POSITION ━━━</color>");
+            PrintToChat(player, $"<color=#4DA6FF>X:</color> {pos.x:F1}  <color=#4DA6FF>Y:</color> {pos.y:F1}  <color=#4DA6FF>Z:</color> {pos.z:F1}");
+            PrintToChat(player, $"<color=#888>Grid:</color> {grid}");
+            PrintToChat(player, $"<color=#888>Monument:</color> {GetNearestMonument(pos)}");
+            PrintToChat(player, $"<color=#888>Share:</color> <color=#FFD700>{pos.x:F0},{pos.y:F0},{pos.z:F0}</color>");
+        }
+
+        // Rust grid reference (e.g. "E-7") — each cell ≈ 146m
+        private string GetGridLocation(Vector3 pos)
+        {
+            float gridSize = 146f;
+            int col = Mathf.FloorToInt((pos.x + 5000f) / gridSize);
+            int row = Mathf.FloorToInt((pos.z + 5000f) / gridSize);
+            char letter = (char)('A' + (col % 26));
+            return $"{letter}{Math.Abs(row) + 1}";
+        }
+
+        // ── Core teleport executor ─────────────────────────────────────────────
+
+        private void DoTeleport(BasePlayer player, Vector3 destination, string reason)
+        {
+            if (player == null || !player.IsConnected()) return;
+
+            var session = GetOrCreateSession(player);
+
+            // Save current position first (so /back works)
+            session.LastPosition = new Position3D(player.transform.position);
+
+            // Warmup delay if configured
+            if (_config.TeleportWarmupSeconds > 0 && !HasRoleOrHigher(session.Role, "mod"))
+            {
+                PrintToChat(player, $"<color=#FFD700>Don't move!</color> Teleporting in {_config.TeleportWarmupSeconds}s...");
+
+                // Cancel if player moves during warmup — hook will catch it
+                session._pendingTeleport = true;
+                session._teleportDestination = destination;
+                session._teleportReason = reason;
+                session._teleportStartPos = new Position3D(player.transform.position);
+
+                timer.Once(_config.TeleportWarmupSeconds * 1000f, () =>
+                {
+                    if (session._pendingTeleport && player.IsConnected())
+                    {
+                        // Teleport using console command (works correctly with vehicles, sleeping, etc.)
+                        player.SendConsoleCommand($"teleport {destination.x} {destination.y} {destination.z}");
+                        session.LastTeleport = DateTime.Now;
+                        session._pendingTeleport = false;
+                        PrintToChat(player, $"<color=#00FF88>{reason}:</color> done!");
+                    }
+                });
+                return;
+            }
+
+            // Instant teleport (mods/admins bypass warmup)
+            player.SendConsoleCommand($"teleport {destination.x} {destination.y} {destination.z}");
+            session.LastTeleport = DateTime.Now;
+            PrintToChat(player, $"<color=#00FF88>{reason}:</color> done!");
+        }
+
+        // Cancel warmup teleport if player moves during countdown — merged into main CanClientMove above
 
         private void ShowWeather(BasePlayer player, PlayerSession session)
         {
