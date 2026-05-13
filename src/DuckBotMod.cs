@@ -849,6 +849,9 @@ namespace RustDuckBot
 
             // Initialize monument camera codes
             InitializeMonumentCodes();
+            InitializeKitDefinitions();
+            InitializeItemPrices();
+            InitializeBuildingPlans();
 
             PrintAsh("<color=#FFD700>RustDuckBot v1.4.0</color> loaded. Computer Station: <color=#00FF00>ENABLED</color> | Chat Panel: <color=#00FF00>ENABLED</color>");
             var aiMode = _config.AgentProvider == "duckbot" ? $"DuckBot MCP ({_config.AgentConfig})" : $"Local AI: {_config.AgentProvider}";
@@ -1710,8 +1713,16 @@ namespace RustDuckBot
 
                 // === BUILDING ===
                 case "tc": HandleTC(player, session); break;
+                case "plan": HandleBuildPlan(player, session, argStr); break;
+                case "materials": HandleMaterials(player, session, argStr); break;
+                case "tcmanage": HandleTCManage(player, session, argStr); break;
+                case "confirm": HandleConfirm(player, session, argStr); break;
+                case "offers": ShowOffers(player); break;
+                case "cancel": HandleCancel(player, argStr); break;
+                case "mylistings": ShowMyListings(player); break;
                 case "cupsize": HandleCupSize(player, session); break;
                 case "decaycheck": HandleDecayCheck(player, session, argStr); break;
+                case "decayalert": HandleDecayAlert(player, session, argStr); break;
 
                 // === NOTIFICATIONS ===
                 case "night": HandleNightAlert(player, session); break;
@@ -1758,6 +1769,10 @@ namespace RustDuckBot
                 case "recipes": ShowRecipes(player, session, argStr); break;
                 case "research": ShowResearch(player, session, argStr); break;
                 case "blueprint": case "bp": ShowBlueprintInfo(player, session, argStr); break;
+                case "loc": case "coords": HandleGridNav(player, session, argStr); break;
+                case "time": ShowTime(player, session); break;
+                case "daynight": HandleTimeToNight(player, session); break;
+                case "world": HandleWorldInfo(player, session); break;
 
                 // === AI CHAT ===
                 case "ask": case "ai": HandleAIChat(player, session, argStr); break;
@@ -3170,6 +3185,187 @@ namespace RustDuckBot
             var qty = parts.Length > 1 && int.TryParse(parts[1], out var q) ? q : 1;
             PrintToChat(player, $"<color=#00FF00>Spawning:</color> {qty}x {parts[0]}");
         }
+
+        // =====================================================================
+        // BUILDING HELPER SYSTEM
+        // =====================================================================
+
+        private class BuildingPlan
+        {
+            public string Name;
+            public string Category;
+            public string Description;
+            public List<BuildingComponent> Components;
+            public int TotalUpkeep;
+        }
+
+        private class BuildingComponent
+        {
+            public string Shortname;
+            public string DisplayName;
+            public int Count;
+        }
+
+        private List<BuildingPlan> _buildingPlans = new List<BuildingPlan>();
+
+        private void InitializeBuildingPlans()
+        {
+            _buildingPlans = new List<BuildingPlan>
+            {
+                new BuildingPlan { Name = "1x1-stone", Category = "base", Description = "Basic 1x1 stone base", Components = new List<BuildingComponent> {
+                    new BuildingComponent { Shortname = "stones", DisplayName = "Stones", Count = 200 },
+                    new BuildingComponent { Shortname = "wood", DisplayName = "Wood", Count = 100 },
+                }, TotalUpkeep = 1 },
+                new BuildingPlan { Name = "2x1-stone", Category = "base", Description = "Expanded 2x1 stone base", Components = new List<BuildingComponent> {
+                    new BuildingComponent { Shortname = "stones", DisplayName = "Stones", Count = 400 },
+                    new BuildingComponent { Shortname = "wood", DisplayName = "Wood", Count = 200 },
+                }, TotalUpkeep = 2 },
+                new BuildingPlan { Name = "compound", Category = "base", Description = "Large compound", Components = new List<BuildingComponent> {
+                    new BuildingComponent { Shortname = "stones", DisplayName = "Stones", Count = 1200 },
+                    new BuildingComponent { Shortname = "wood", DisplayName = "Wood", Count = 600 },
+                    new BuildingComponent { Shortname = "metal.fragments", DisplayName = "Metal Frags", Count = 200 },
+                }, TotalUpkeep = 4 },
+                new BuildingPlan { Name = "tower", Category = "farm", Description = "High vertical tower", Components = new List<BuildingComponent> {
+                    new BuildingComponent { Shortname = "stones", DisplayName = "Stones", Count = 800 },
+                    new BuildingComponent { Shortname = "wood", DisplayName = "Wood", Count = 400 },
+                }, TotalUpkeep = 3 },
+                new BuildingPlan { Name = "bunker", Category = "defense", Description = "Defensive bunker", Components = new List<BuildingComponent> {
+                    new BuildingComponent { Shortname = "stones", DisplayName = "Stones", Count = 1500 },
+                    new BuildingComponent { Shortname = "hqm", DisplayName = "HQM", Count = 50 },
+                }, TotalUpkeep = 5 },
+                new BuildingPlan { Name = "watchtower", Category = "defense", Description = "Exterior watchtower", Components = new List<BuildingComponent> {
+                    new BuildingComponent { Shortname = "wood", DisplayName = "Wood", Count = 500 },
+                    new BuildingComponent { Shortname = "stones", DisplayName = "Stones", Count = 200 },
+                }, TotalUpkeep = 2 },
+            };
+        }
+
+        private void HandleBuildPlan(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!HasRoleOrHigher(session.Role, "vip")) { PrintToChat(player, "<color=#FF4444>VIP+ required</color>"); return; }
+            if (string.IsNullOrWhiteSpace(args) || args == "list")
+            {
+                PrintToChat(player, "<color=#FFD700>━━━ BUILDING PLANS ━━━</color>");
+                foreach (var plan in _buildingPlans)
+                {
+                    var emoji = plan.Category == "base" ? "🏠" : plan.Category == "farm" ? "🌾" : plan.Category == "defense" ? "🛡" : "✨";
+                    PrintToChat(player, "  " + emoji + " <color=#4DA6FF>" + plan.Name + "</color> -- " + plan.Description);
+                    PrintToChat(player, "       Upkeep: " + plan.TotalUpkeep + "/day | Components: " + plan.Components.Sum(c => c.Count));
+                }
+                PrintToChat(player, "\n<color=#888>/db plan <name> for materials breakdown</color>");
+                return;
+            }
+            var plan = _buildingPlans.FirstOrDefault(p => p.Name.Equals(args, StringComparison.OrdinalIgnoreCase) || p.Name.Contains(args, StringComparison.OrdinalIgnoreCase));
+            if (plan == null) { PrintToChat(player, "<color=#FF4444>Unknown plan:</color> " + args); return; }
+            PrintToChat(player, "<color=#FFD700>━━━ " + plan.Name.ToUpper() + " ━━━</color>");
+            PrintToChat(player, "<color=#888>" + plan.Description + "</color>");
+            PrintToChat(player, "<color=#FFD700>Materials:</color>");
+            foreach (var comp in plan.Components)
+                PrintToChat(player, "  * " + comp.DisplayName + ": <color=#4DA6FF>" + comp.Count + "</color>");
+            PrintToChat(player, "<color=#FFD700>Upkeep:</color> " + plan.TotalUpkeep + " fragments/day");
+        }
+
+        private void HandleMaterials(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!HasRoleOrHigher(session.Role, "user")) { PrintToChat(player, "<color=#FF4444>Login required</color>"); return; }
+            if (string.IsNullOrWhiteSpace(args)) { PrintToChat(player, "Usage: /db materials <item> (wall, floor, ramp, stairs, foundation, roof, door, gate)"); return; }
+            var matMap = new Dictionary<string, (string material, int count)>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["wall"] = ("stones", 100), ["wall.stone"] = ("stones", 100),
+                ["floor"] = ("stones", 50), ["floor.metal"] = ("metal.fragments", 100),
+                ["ramp"] = ("stones", 80), ["stairs"] = ("stones", 60),
+                ["foundation"] = ("stones", 30), ["roof"] = ("stones", 50),
+                ["gate"] = ("hqm", 200), ["door"] = ("hqm", 100),
+            };
+            var key = args.ToLower().Trim();
+            if (matMap.TryGetValue(key, out var info))
+            {
+                PrintToChat(player, "<color=#FFD700>━━━ MATERIALS: " + key.ToUpper() + " ━━━</color>");
+                PrintToChat(player, "  Material: <color=#4DA6FF>" + info.material + "</color>");
+                PrintToChat(player, "  Count: <color=#4DA6FF>" + info.count + "</color> per block");
+                PrintToChat(player, "  <color=#888>Upgrade: wood -> stone -> metal -> hqm</color>");
+            }
+            else
+            {
+                PrintToChat(player, "<color=#FF4444>Unknown item:</color> " + args);
+                PrintToChat(player, "<color=#888>Try: wall, floor, ramp, stairs, foundation, roof, door, gate</color>");
+            }
+        }
+
+        private void HandleTCManage(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!HasRoleOrHigher(session.Role, "vip")) { PrintToChat(player, "<color=#FF4444>VIP+ required</color>"); return; }
+            var parts = SplitArgs(args, 2);
+            var action = parts.Length > 0 ? parts[0].ToLower() : "";
+            var pos = player.transform.position;
+            BuildingPrivlidge nearestTC = null;
+            foreach (var e in BaseEntity.saveList)
+                if (e is BuildingPrivlidge tc && Vector3.Distance(tc.transform.position, pos) < 5f) { nearestTC = tc; break; }
+            if (nearestTC == null) { PrintToChat(player, "<color=#FF4444>No TC within 5m.</color>"); return; }
+            switch (action)
+            {
+                case "auth":
+                case "list":
+                    PrintToChat(player, "<color=#FFD700>━━━ TC AUTH @" + GetLocation(nearestTC.transform.position) + " ━━━</color>");
+                    PrintToChat(player, "Authorized: " + nearestTC.authorizedPlayers.Count);
+                    foreach (var auth in nearestTC.authorizedPlayers.Take(10))
+                        PrintToChat(player, "  * " + auth.username + " (" + auth.userid + ")");
+                    if (nearestTC.authorizedPlayers.Count > 10)
+                        PrintToChat(player, "  <color=#888>...and " + (nearestTC.authorizedPlayers.Count - 10) + " more</color>");
+                    break;
+                case "add":
+                    var targetName = parts.Length > 1 ? parts[1] : "";
+                    if (string.IsNullOrEmpty(targetName)) { PrintToChat(player, "Usage: /db tcmanage add <player>"); return; }
+                    var target = FindPlayer(targetName);
+                    if (target == null) { PrintToChat(player, "<color=#FF4444>Player not found:</color> " + targetName); return; }
+                    nearestTC.authorizedPlayers.Add(new ProtoBuf.PlayerNameID { userid = target.userID, username = target.displayName });
+                    nearestTC.SendNetworkUpdate();
+                    PrintToChat(player, "<color=#00FF00>✅ Added to TC:</color> " + target.displayName);
+                    break;
+                case "remove":
+                    var removeName = parts.Length > 1 ? parts[1] : "";
+                    if (string.IsNullOrEmpty(removeName)) { PrintToChat(player, "Usage: /db tcmanage remove <player>"); return; }
+                    var removeTarget = FindPlayer(removeName);
+                    if (removeTarget == null) { PrintToChat(player, "<color=#FF4444>Player not found:</color> " + removeName); return; }
+                    var authed = nearestTC.authorizedPlayers.FirstOrDefault(a => a.userid == removeTarget.userID);
+                    if (authed != null) { nearestTC.authorizedPlayers.Remove(authed); nearestTC.SendNetworkUpdate(); PrintToChat(player, "<color=#00FF00>✅ Removed from TC:</color> " + removeTarget.displayName); }
+                    else PrintToChat(player, "<color=#FF4444>Player not authorized in this TC.</color>");
+                    break;
+                default:
+                    PrintToChat(player, "<color=#FFD700>━━━ TC MANAGER ━━━</color>");
+                    PrintToChat(player, "/db tcmanage auth -- View authorized players");
+                    PrintToChat(player, "/db tcmanage add <player> -- Add player to TC");
+                    PrintToChat(player, "/db tcmanage remove <player> -- Remove player from TC");
+                    break;
+            }
+        }
+
+        private void HandleDecayAlert(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!HasRoleOrHigher(session.Role, "vip")) { PrintToChat(player, "<color=#FF4444>VIP+ required</color>"); return; }
+            var pos = player.transform.position;
+            var atRisk = new List<string>();
+            foreach (var e in BaseEntity.saveList)
+            {
+                if (e is BuildingBlock b && Vector3.Distance(b.transform.position, pos) < 50f)
+                {
+                    var blockHealth = b.health;
+                    var maxHealth = b.MaxHealth();
+                    if (maxHealth > 0 && blockHealth / maxHealth < 0.25f)
+                        atRisk.Add(b.ShortPrefabName + " @" + GetLocation(b.transform.position) + " " + blockHealth.ToString("F0") + "/" + maxHealth.ToString("F0") + "HP");
+                }
+                if (atRisk.Count >= 15) break;
+            }
+            PrintToChat(player, "<color=#FFD700>━━━ DECAY ALERT (50m) ━━━</color>");
+            PrintToChat(player, "At-risk structures: " + atRisk.Count);
+            if (atRisk.Count == 0) PrintToChat(player, "<color=#00FF88>✅ No structures below 25% health.</color>");
+            else foreach (var s in atRisk) PrintToChat(player, "  ⚠️ " + s);
+        }
+
+        // =====================================================================
+        // UTILITY HELPERS
+        // =====================================================================
+
 
         // =====================================================================
         // UTILITY
@@ -5401,4 +5597,457 @@ Server config: CameraControl={cfg.EnableCameraControl}, RaidAlerts={cfg.EnableRa
         public Position3D(Vector3 v) { X = v.x; Y = v.y; Z = v.z; }
         public Vector3 ToVector3() => new Vector3(X, Y, Z);
     }
-}
+}// =====================================================================
+// ENHANCED KITS SYSTEM
+// =====================================================================
+
+        private class KitDefinition
+        {
+            public string Name;
+            public string DisplayName;
+            public string Category;
+            public string Description;
+            public string RustKitName;
+            public string Permission;
+            public int CooldownMinutes;
+            public int MaxUsesPerDay;
+        }
+
+        private Dictionary<string, KitDefinition> _kitDefinitions = new Dictionary<string, KitDefinition>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<ulong, Dictionary<string, DateTime>> _kitCooldowns = new Dictionary<ulong, Dictionary<string, DateTime>>();
+        private Dictionary<ulong, Dictionary<string, int>> _kitDailyUses = new Dictionary<ulong, Dictionary<string, int>>();
+
+        private void InitializeKitDefinitions()
+        {
+            _kitDefinitions = new Dictionary<string, KitDefinition>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["starter"] = new KitDefinition { Name = "starter", DisplayName = "Starter Pack", Category = "combat", Description = "Basic resources to get started", RustKitName = "starter", Permission = "rustduckbot.use", CooldownMinutes = 60, MaxUsesPerDay = 3 },
+                ["pvp"] = new KitDefinition { Name = "pvp", DisplayName = "PvP Loadout", Category = "combat", Description = "Combat gear -- weapons, ammo, armor", RustKitName = "pvp", Permission = "rustduckbot.vip", CooldownMinutes = 120, MaxUsesPerDay = 2 },
+                ["naked"] = new KitDefinition { Name = "naked", DisplayName = "Fresh Start", Category = "events", Description = "Start completely fresh", RustKitName = "naked", Permission = "rustduckbot.use", CooldownMinutes = 30, MaxUsesPerDay = 5 },
+                ["event"] = new KitDefinition { Name = "event", DisplayName = "Event Kit", Category = "events", Description = "Special event items", RustKitName = "event", Permission = "rustduckbot.vip", CooldownMinutes = 240, MaxUsesPerDay = 1 },
+                ["scrap"] = new KitDefinition { Name = "scrap", DisplayName = "Scrap Heap", Category = "resources", Description = "500 scrap for crafting", RustKitName = "scrap", Permission = "rustduckbot.use", CooldownMinutes = 30, MaxUsesPerDay = 4 },
+                ["components"] = new KitDefinition { Name = "components", DisplayName = "Component Crate", Category = "resources", Description = "Gears, pipes, sheets, more", RustKitName = "components", Permission = "rustduckbot.vip", CooldownMinutes = 60, MaxUsesPerDay = 3 },
+                ["building"] = new KitDefinition { Name = "building", DisplayName = "Builder's Bundle", Category = "building", Description = "Stone, wood, metal fragments and tools", RustKitName = "building", Permission = "rustduckbot.vip", CooldownMinutes = 90, MaxUsesPerDay = 3 },
+                ["vip"] = new KitDefinition { Name = "vip", DisplayName = "VIP Crate", Category = "vip", Description = "Premium items for supporters", RustKitName = "vip", Permission = "rustduckbot.mod", CooldownMinutes = 360, MaxUsesPerDay = 1 },
+                ["admin"] = new KitDefinition { Name = "admin", DisplayName = "Admin Kit", Category = "vip", Description = "Admin-only equipment", RustKitName = "admin", Permission = "rustduckbot.admin", CooldownMinutes = 60, MaxUsesPerDay = 2 },
+            };
+        }
+
+        private bool CanUseKit(ulong steamId, KitDefinition kit, out string reason)
+        {
+            reason = null;
+            if (!string.IsNullOrEmpty(kit.Permission) && !permission.UserHasPermission(steamId.ToString(), kit.Permission) && !HasRoleOrHigher(GetSession(steamId)?.Role ?? "user", "admin"))
+            { reason = "Permission required: " + kit.Permission; return false; }
+            if (!_kitCooldowns.TryGetValue(steamId, out var cooldowns)) _kitCooldowns[steamId] = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+            if (cooldowns.TryGetValue(kit.Name, out var lastUsed))
+            {
+                var elapsed = (DateTime.UtcNow - lastUsed).TotalMinutes;
+                if (elapsed < kit.CooldownMinutes) { reason = (kit.CooldownMinutes - (int)elapsed) + "min cooldown remaining"; return false; }
+            }
+            if (!_kitDailyUses.TryGetValue(steamId, out var daily)) _kitDailyUses[steamId] = new Dictionary<string, int>();
+            var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+            var key = today + kit.Name;
+            var used = daily.TryGetValue(key, out var u) ? u : 0;
+            if (used >= kit.MaxUsesPerDay) { reason = "Daily limit reached (" + kit.MaxUsesPerDay + "/day). Resets at midnight UTC."; return false; }
+            return true;
+        }
+
+        private void RecordKitUse(ulong steamId, string kitName)
+        {
+            if (!_kitCooldowns.TryGetValue(steamId, out var cooldowns)) _kitCooldowns[steamId] = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+            cooldowns[kitName] = DateTime.UtcNow;
+            if (!_kitDailyUses.TryGetValue(steamId, out var daily)) _kitDailyUses[steamId] = new Dictionary<string, int>();
+            var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+            var key = today + kitName;
+            daily[key] = daily.TryGetValue(key, out var u) ? u + 1 : 1;
+        }
+
+        private string GetKitCooldownInfo(ulong steamId, KitDefinition kit)
+        {
+            if (!_kitCooldowns.TryGetValue(steamId, out var cooldowns)) return null;
+            if (!cooldowns.TryGetValue(kit.Name, out var lastUsed)) return null;
+            var remaining = kit.CooldownMinutes - (int)(DateTime.UtcNow - lastUsed).TotalMinutes;
+            return remaining > 0 ? remaining + "min" : null;
+        }
+
+        private int GetKitDailyUses(ulong steamId, string kitName)
+        {
+            if (!_kitDailyUses.TryGetValue(steamId, out var daily)) return 0;
+            var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+            return daily.TryGetValue(today + kitName, out var u) ? u : 0;
+        }
+
+        private void ShowKits(BasePlayer player, PlayerSession session)
+        {
+            var cats = _kitDefinitions.Values.GroupBy(k => k.Category).ToList();
+            PrintToChat(player, "<color=#FFD700>━━━━━ KITS ━━━━━</color>");
+            foreach (var cat in cats)
+            {
+                var catEmoji = cat.Key == "combat" ? "⚔" : cat.Key == "building" ? "🔨" : cat.Key == "resources" ? "📦" : cat.Key == "vip" ? "👑" : "🎉";
+                PrintToChat(player, "\n<color=#4DA6FF>" + catEmoji + " " + cat.Key.ToUpper() + "</color>");
+                foreach (var kit in cat)
+                {
+                    var cooldown = GetKitCooldownInfo(player.userID, kit);
+                    var daily = GetKitDailyUses(player.userID, kit.Name);
+                    var status = cooldown != null ? " [⏳" + cooldown + "]" : daily >= kit.MaxUsesPerDay ? " [LIMIT]" : " [READY]";
+                    PrintToChat(player, "  <color=#4DA6FF>/db kit " + kit.Name + "</color>" + status + " -- " + kit.Description);
+                }
+            }
+            PrintToChat(player, "\n<color=#888>Use /db kit <name> to redeem. Cooldowns reset daily.</color>");
+        }
+
+        private void HandleKit(BasePlayer player, PlayerSession session, string args)
+        {
+            var parts = SplitArgs(args, 2);
+            var kitName = parts.Length > 0 ? parts[0].Trim().ToLower() : "";
+            var subCmd = parts.Length > 1 ? parts[1].ToLower() : "";
+            if (string.IsNullOrEmpty(kitName) || kitName == "help" || kitName == "list")
+            { ShowKits(player, session); return; }
+            if (kitName == "info")
+            {
+                var target = FindPlayer(subCmd.Length > 0 ? subCmd : player.displayName);
+                if (target == null) { PrintToChat(player, "Player not found: " + subCmd); return; }
+                ShowPlayerKitInfo(player, target);
+                return;
+            }
+            if (!_kitDefinitions.TryGetValue(kitName, out var kit))
+            {
+                var closest = _kitDefinitions.Keys.Where(k => k.Contains(kitName) || kitName.Contains(k)).FirstOrDefault();
+                PrintToChat(player, "<color=#FF4444>Unknown kit:</color> " + kitName);
+                if (closest != null) PrintToChat(player, "<color=#888>Did you mean:</color> " + closest);
+                return;
+            }
+            if (!CanUseKit(player.userID, kit, out var reason))
+            {
+                PrintToChat(player, "<color=#FF4444>Cannot use kit:</color> " + reason);
+                if (reason.Contains("Permission")) PrintToChat(player, "<color=#888>Contact an admin to unlock this kit.</color>");
+                return;
+            }
+            ConsoleSystemRun.ServerCommand("kit give " + kit.RustKitName + " " + player.UserIDString);
+            RecordKitUse(player.userID, kit.Name);
+            PrintToChat(player, "<color=#00FF88>✅ Kit redeemed:</color> " + kit.DisplayName);
+            PrintToChat(player, "<color=#888>Next use in " + kit.CooldownMinutes + "min</color>");
+            LogActivity("kits", "Kit claimed", player.displayName + " claimed kit '" + kit.Name + "'", player.UserIDString, player.displayName);
+        }
+
+        private void ShowPlayerKitInfo(BasePlayer player, BasePlayer target)
+        {
+            PrintToChat(player, "<color=#FFD700>━━━ KIT STATUS: " + target.displayName + " ━━━</color>");
+            foreach (var kv in _kitDefinitions)
+            {
+                var kit = kv.Value;
+                var cooldown = GetKitCooldownInfo(target.userID, kit);
+                var daily = GetKitDailyUses(target.userID, kit.Name);
+                var status = cooldown != null ? "⏳ " + cooldown : daily >= kit.MaxUsesPerDay ? "❌ limit" : "✅ ready";
+                var perm = string.IsNullOrEmpty(kit.Permission) ? "all" : kit.Permission.Replace("rustduckbot.", "");
+                PrintToChat(player, "  <color=#4DA6FF>" + kit.Name + "</color> -- " + daily + "/" + kit.MaxUsesPerDay + " daily -- " + status + " -- [" + perm + "]");
+            }
+        }
+
+
+// =====================================================================
+// ENHANCED SHOP & TRADING SYSTEM
+// =====================================================================
+
+        private class MarketListing
+        {
+            public string Id;
+            public ulong SellerId;
+            public string SellerName;
+            public string ItemName;
+            public int Quantity;
+            public int PricePerUnit;
+            public string Currency;
+            public bool Available;
+            public DateTime ListedAt;
+            public DateTime ExpiresAt;
+            public bool IsOffer;
+        }
+
+        private List<MarketListing> _marketListings = new List<MarketListing>();
+        private Dictionary<string, int> _itemPrices = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<ulong, PendingTransaction> _pendingTransactions = new Dictionary<ulong, PendingTransaction>();
+
+        private class PendingTransaction { public string ListingId; public ulong BuyerId; public DateTime CreatedAt; }
+
+        private void InitializeItemPrices()
+        {
+            _itemPrices = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["wood"] = 2, ["stones"] = 3, ["metal.fragments"] = 4, ["hqm"] = 20,
+                ["scrap"] = 1, ["sulfur"] = 3, ["gunpowder"] = 4,
+                ["556mm"] = 1, ["762mm"] = 1, ["shotgun.shells"] = 2, ["nails"] = 1,
+                ["bandage"] = 2, ["medkit"] = 15, ["syringe"] = 8, ["blood"] = 5,
+                ["cloth"] = 1, ["leather"] = 3, ["roadsign"] = 5, ["sheetmetal"] = 8,
+                ["rope"] = 4, ["metalpipe"] = 3, ["pipe"] = 2, ["chainsaw"] = 50,
+                ["surveycharge"] = 10, ["exploit"] = 25, ["torpedo"] = 40,
+                ["hazmatsuit"] = 80, ["coffeeset"] = 15, ["cctv"] = 30,
+            };
+        }
+
+        private void ShowShop(BasePlayer player, PlayerSession session)
+        {
+            PrintToChat(player, "<color=#3498DB>═══════════════════════════════════════</color>");
+            PrintToChat(player, "<color=#3498DB>  🛒 DUCKBOT MARKET</color>");
+            PrintToChat(player, "<color=#3498DB>═══════════════════════════════════════</color>");
+            var activeCount = _marketListings.Count(l => l.Available);
+            var myCount = _marketListings.Count(l => l.SellerId == player.userID && l.Available);
+            PrintToChat(player, "<color=#FFD700>Active listings:</color> " + activeCount);
+            PrintToChat(player, "<color=#FFD700>Your listings:</color> " + myCount);
+            if (activeCount > 0)
+            {
+                PrintToChat(player, "\n<color=#FFD700>📋 RECENT LISTINGS:</color>");
+                foreach (var listing in _marketListings.Where(l => l.Available).OrderByDescending(l => l.ListedAt).Take(8))
+                {
+                    var typeTag = listing.IsOffer ? "🔍 BUY" : "💰 SELL";
+                    PrintToChat(player, "  " + typeTag + " " + listing.ItemName + " x" + listing.Quantity + " @ " + listing.PricePerUnit + " " + listing.Currency);
+                }
+            }
+            PrintToChat(player, "\n<color=#FFD700>COMMANDS:</color>");
+            PrintToChat(player, "/db shop -- Browse market");
+            PrintToChat(player, "/db sell <item> [qty] [price] -- List item for sale");
+            PrintToChat(player, "/db buy <item> -- Buy from lowest-price listing");
+            PrintToChat(player, "/db price <item> -- Check market price");
+            PrintToChat(player, "/db offers -- View your buy offers");
+            PrintToChat(player, "/db mylistings -- Your active listings");
+            PrintToChat(player, "/db cancel <id> -- Remove a listing");
+            PrintToChat(player, "<color=#3498DB>═══════════════════════════════════════</color>");
+        }
+
+        private void HandleSell(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!HasRoleOrHigher(session.Role, "user")) { PrintToChat(player, "<color=#FF4444>Login required</color>"); return; }
+            var parts = args.Split(' ', 3);
+            if (parts.Length < 1) { PrintToChat(player, "Usage: /db sell <item> [qty] [price_per_unit]"); return; }
+            var itemName = parts[0];
+            var qty = parts.Length > 1 && int.TryParse(parts[1], out var q) ? q : 1;
+            var price = parts.Length > 2 && int.TryParse(parts[2], out var p) ? p : 0;
+            if (price <= 0)
+            {
+                if (_itemPrices.TryGetValue(itemName.ToLower(), out var autoPrice)) price = autoPrice * qty;
+                else price = 10 * qty;
+            }
+            var listing = new MarketListing
+            {
+                Id = Guid.NewGuid().ToString().Substring(0, 8),
+                SellerId = player.userID,
+                SellerName = player.displayName,
+                ItemName = itemName,
+                Quantity = qty,
+                PricePerUnit = price,
+                Currency = "scrap",
+                Available = true,
+                ListedAt = DateTime.UtcNow,
+                ExpiresAt = DateTime.UtcNow.AddDays(7),
+            };
+            _marketListings.Add(listing);
+            PrintToChat(player, "<color=#00FF88>📋 Listed:</color> " + itemName + " x" + qty + " @ " + price + " scrap/lock");
+            PrintToChat(player, "<color=#888>ID: " + listing.Id + " -- /db cancel " + listing.Id + " to remove</color>");
+        }
+
+        private void HandleBuy(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!HasRoleOrHigher(session.Role, "user")) { PrintToChat(player, "<color=#FF4444>Login required</color>"); return; }
+            if (string.IsNullOrWhiteSpace(args)) { PrintToChat(player, "Usage: /db buy <item>"); return; }
+            var matches = _marketListings.Where(l => l.Available && !l.IsOffer &&
+                (l.ItemName.Contains(args, StringComparison.OrdinalIgnoreCase) ||
+                 l.ItemName.Equals(args, StringComparison.OrdinalIgnoreCase))).OrderBy(l => l.PricePerUnit).ToList();
+            if (matches.Count == 0) { PrintToChat(player, "<color=#FF4444>No listings found for:</color> " + args); return; }
+            var listing = matches.First();
+            PrintToChat(player, "<color=#FFD700>BUY CONFIRMATION</color>");
+            PrintToChat(player, "  Item: " + listing.ItemName + " x" + listing.Quantity);
+            PrintToChat(player, "  Price: " + (listing.PricePerUnit * listing.Quantity) + " " + listing.Currency);
+            PrintToChat(player, "  Seller: " + listing.SellerName);
+            PrintToChat(player, "  ID: " + listing.Id);
+            PrintToChat(player, "");
+            PrintToChat(player, "Reply with <color=#FFD700>/db confirm " + listing.Id + "</color> to complete.");
+            _pendingTransactions[player.userID] = new PendingTransaction { ListingId = listing.Id, BuyerId = player.userID, CreatedAt = DateTime.UtcNow };
+        }
+
+        private void HandleConfirm(BasePlayer player, PlayerSession session, string listingId)
+        {
+            if (!_pendingTransactions.TryGetValue(player.userID, out var pending) || pending.ListingId != listingId)
+            {
+                PrintToChat(player, "<color=#FF4444>No pending transaction.</color> Use /db buy <item> first.");
+                return;
+            }
+            var listing = _marketListings.FirstOrDefault(l => l.Id == listingId && l.Available);
+            if (listing == null) { PrintToChat(player, "<color=#FF4444>Listing not found or sold.</color>"); return; }
+            var total = listing.PricePerUnit * listing.Quantity;
+            listing.Available = false;
+            _pendingTransactions.Remove(player.userID);
+            PrintToChat(player, "<color=#00FF88>✅ Purchase complete!</color>");
+            PrintToChat(player, "  Bought: " + listing.ItemName + " x" + listing.Quantity);
+            PrintToChat(player, "  Total: " + total + " " + listing.Currency);
+            PrintToChat(player, "  Contact " + listing.SellerName + " for delivery.");
+            LogActivity("trade", "Purchase", player.displayName + " bought " + listing.ItemName + "x" + listing.Quantity + " from " + listing.SellerName + " for " + total, player.UserIDString, player.displayName);
+        }
+
+        private void CheckPrice(BasePlayer player, PlayerSession session, string itemName)
+        {
+            if (string.IsNullOrWhiteSpace(itemName)) { PrintToChat(player, "Usage: /db price <item_name>"); return; }
+            var listings = _marketListings.Where(l => l.Available && !l.IsOffer && l.ItemName.Contains(itemName, StringComparison.OrdinalIgnoreCase)).ToList();
+            var offers = _marketListings.Where(l => l.Available && l.IsOffer && l.ItemName.Contains(itemName, StringComparison.OrdinalIgnoreCase)).ToList();
+            var knownPrice = _itemPrices.TryGetValue(itemName.ToLower(), out var kp) ? kp : 0;
+            PrintToChat(player, "<color=#3498DB>═══ PRICE: " + itemName + " ═══</color>");
+            if (listings.Count > 0)
+            {
+                var avg = listings.Average(l => l.PricePerUnit);
+                var min = listings.Min(l => l.PricePerUnit);
+                var max = listings.Max(l => l.PricePerUnit);
+                PrintToChat(player, "<color=#FFD700>SELL orders:</color> " + listings.Count);
+                PrintToChat(player, "  Best: " + min + " | Avg: " + avg.ToString("F0") + " | Max: " + max);
+            }
+            if (offers.Count > 0)
+            {
+                var bestOffer = offers.Min(l => l.PricePerUnit);
+                PrintToChat(player, "<color=#FFD700>BUY offers:</color> " + offers.Count + " -- best: " + bestOffer);
+            }
+            if (knownPrice > 0) PrintToChat(player, "<color=#888>Reference price:</color> " + knownPrice + "/unit");
+            if (listings.Count == 0 && offers.Count == 0 && knownPrice == 0)
+                PrintToChat(player, "<color=#888>No price data for this item.</color>");
+        }
+
+        private void ShowMyListings(BasePlayer player)
+        {
+            var mine = _marketListings.Where(l => l.SellerId == player.userID).ToList();
+            var active = mine.Where(l => l.Available).ToList();
+            PrintToChat(player, "<color=#FFD700>━━━ YOUR LISTINGS ━━━</color>");
+            PrintToChat(player, "Active: " + active.Count + " | Total: " + mine.Count);
+            if (active.Count == 0) { PrintToChat(player, "<color=#888>No active listings.</color>"); return; }
+            foreach (var listing in active)
+            {
+                var typeTag = listing.IsOffer ? "🔍 BUY" : "💰 SELL";
+                var expires = (listing.ExpiresAt - DateTime.UtcNow).TotalHours;
+                PrintToChat(player, "  [" + listing.Id + "] " + typeTag + " " + listing.ItemName + " x" + listing.Quantity + " @ " + listing.PricePerUnit + " (expires " + (int)expires + "h)");
+            }
+            PrintToChat(player, "<color=#888>/db cancel <id> to remove</color>");
+        }
+
+        private void HandleCancel(BasePlayer player, string listingId)
+        {
+            var listing = _marketListings.FirstOrDefault(l => l.Id == listingId && l.SellerId == player.userID && l.Available);
+            if (listing == null) { PrintToChat(player, "<color=#FF4444>Listing not found or not yours.</color>"); return; }
+            listing.Available = false;
+            PrintToChat(player, "<color=#00FF00>✅ Removed:</color> " + listing.ItemName);
+        }
+
+        private void ShowOffers(BasePlayer player)
+        {
+            var offers = _marketListings.Where(l => l.Available && l.IsOffer && l.SellerId == player.userID).ToList();
+            PrintToChat(player, "<color=#FFD700>━━━ YOUR BUY OFFERS ━━━</color>");
+            if (offers.Count == 0) { PrintToChat(player, "<color=#888>No active buy offers.</color>"); return; }
+            foreach (var o in offers) PrintToChat(player, "  [" + o.Id + "] BUY " + o.ItemName + " x" + o.Quantity + " @ " + o.PricePerUnit);
+        }
+
+
+
+
+
+        // =====================================================================
+        // GRID NAVIGATION & WORLD INFO
+        // =====================================================================
+
+
+        private void HandleRaidStatus(BasePlayer player, PlayerSession session)
+        {
+            PrintToChat(player, "<color=#FFD700>━━━ RAID STATUS ━━━</color>");
+            var now = DateTime.UtcNow;
+            var recentRaids = _activityLog.Where(e =>
+                e.Category == "security" && e.Action.Contains("raid") &&
+                (now - e.Timestamp).TotalHours < 4).ToList();
+            PrintToChat(player, "Recent raids (4h): " + recentRaids.Count);
+            if (recentRaids.Count > 0)
+            {
+                foreach (var r in recentRaids.Take(5))
+                    PrintToChat(player, "  ⚠️ " + r.Details + " (" + GetTimeAgo(r.Timestamp) + ")");
+            }
+            else PrintToChat(player, "<color=#00FF88>✅ No recent raid activity.</color>");
+        }
+
+        private string GetTimeAgo(DateTime time)
+        {
+            var span = DateTime.UtcNow - time;
+            if (span.TotalMinutes < 1) return "just now";
+            if (span.TotalMinutes < 60) return (int)span.TotalMinutes + "m ago";
+            if (span.TotalHours < 24) return (int)span.TotalHours + "h ago";
+            return (int)span.TotalDays + "d ago";
+        }
+
+
+
+        // =====================================================================
+        // GRID NAVIGATION & WORLD INFO
+        // =====================================================================
+
+        private void HandleGridNav(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!HasRoleOrHigher(session.Role, "user")) { PrintToChat(player, "<color=#FF4444>Login required</color>"); return; }
+            var pos = player.transform.position;
+            var grid = GetGrid(pos);
+            PrintToChat(player, "<color=#FFD700>━━━ YOUR LOCATION ━━━</color>");
+            PrintToChat(player, "Grid: <color=#4DA6FF>" + grid + "</color>");
+            PrintToChat(player, "Coords: <color=#888>" + pos.x.ToString("F0") + ", " + pos.y.ToString("F0") + ", " + pos.z.ToString("F0") + "</color>");
+            PrintToChat(player, "<color=#FFD700>━━━ NEARBY MONUMENTS ━━━</color>");
+            var monuments = new[] {
+                ("Launch Site", new Vector3(0, 0, 0)),
+                ("Oil Rig", new Vector3(2200, 0, 0)),
+                ("Dome", new Vector3(0, 0, 1200)),
+                ("Bandit Camp", new Vector3(-1200, 0, 0)),
+                ("Outpost", new Vector3(500, 0, 400)),
+                ("Large Oil Rig", new Vector3(-1700, 0, 700)),
+                ("Airfield", new Vector3(1100, 0, -900)),
+                ("Water Treatment", new Vector3(-500, 0, -1500)),
+                ("Excavation", new Vector3(600, 0, 100)),
+                ("Lighthouse", new Vector3(1700, 0, 1700)),
+            };
+            var nearby = monuments.Where(m => Vector3.Distance(pos, m.Item2) < 500f).ToList();
+            if (nearby.Count == 0) PrintToChat(player, "<color=#888>No monuments within 500m.</color>");
+            else foreach (var m in nearby.OrderBy(m => Vector3.Distance(pos, m.Item2)))
+            {
+                var dist = Vector3.Distance(pos, m.Item2);
+                PrintToChat(player, "  <color=#4DA6FF>" + m.Item1 + "</color> -- " + dist.ToString("F0") + "m");
+            }
+        }
+
+        private string GetGrid(Vector3 pos)
+        {
+            var mapSize = 4500f;
+            var xChar = (char)('A' + (int)((pos.x + mapSize) / (2 * mapSize) * 25));
+            var zNum = (int)((mapSize - pos.z) / (2 * mapSize) * 25) + 1;
+            return xChar + "" + zNum;
+        }
+
+        private void HandleTimeToNight(BasePlayer player, PlayerSession session)
+        {
+            var time = ConVar.Server.time;
+            var hoursUntilNight = 9.0 - (time % 18.0);
+            if (hoursUntilNight < 0) hoursUntilNight += 18;
+            PrintToChat(player, "<color=#FFD700>━━━ DAY/NIGHT CYCLE ━━━</color>");
+            var isNight = time > 9 && time < 18;
+            PrintToChat(player, "Current time: <color=#4DA6FF>" + time.ToString("F1") + "hrs</color>");
+            PrintToChat(player, "Status: <color=#" + (isNight ? "FF4444>NIGHT" : "00FF88>DAYLIGHT") + "</color>");
+            PrintToChat(player, "Time until <color=#FFD700>" + (isNight ? "DAWN" : "NIGHT") + ":</color> " + hoursUntilNight.ToString("F1") + " hrs");
+            PrintToChat(player, "<color=#888>Night: 9PM-9AM | Daylight: 9AM-9PM</color>");
+        }
+
+        private void HandleWorldInfo(BasePlayer player, PlayerSession session)
+        {
+            var pos = player.transform.position;
+            var grid = GetGrid(pos);
+            PrintToChat(player, "<color=#FFD700>━━━ WORLD INFO ━━━</color>");
+            PrintToChat(player, "Players online: <color=#4DA6FF>" + BasePlayer.activePlayerList.Count + "</color>");
+            PrintToChat(player, "Sleeping: <color=#888>" + BasePlayer.sleepingPlayerList.Count + "</color>");
+            PrintToChat(player, "Your grid: <color=#4DA6FF>" + grid + "</color>");
+            PrintToChat(player, "Coords: <color=#888>" + pos.x.ToString("F0") + ", " + pos.y.ToString("F0") + ", " + pos.z.ToString("F0") + "</color>");
+        }
+
+        private string GetTimeAgo(DateTime time)
+        {
+            var span = DateTime.UtcNow - time;
+            if (span.TotalMinutes < 1) return "just now";
+            if (span.TotalMinutes < 60) return (int)span.TotalMinutes + "m ago";
+            if (span.TotalHours < 24) return (int)span.TotalHours + "h ago";
+            return (int)span.TotalDays + "d ago";
+        }
+
