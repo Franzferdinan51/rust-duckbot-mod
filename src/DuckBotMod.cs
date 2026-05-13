@@ -1120,7 +1120,7 @@ namespace RustDuckBot
 
         // Fired every frame while a player is watching a CCTV camera.
         // station = the ComputerStation they used to enter, camera = the CCTV entity.
-        private void OnCCTVCameraUsed(BasePlayer player, ComputerStation station, CCTVCamera camera)
+        private void OnCCTVCameraUsed(BasePlayer player, ComputerStation station, CCTVRCamera camera)
         {
             if (player == null) return;
 
@@ -1247,7 +1247,7 @@ namespace RustDuckBot
         }
 
         // Get human-readable camera name
-        private string GetCameraDisplayName(CCTVCamera camera, string cameraId)
+        private string GetCameraDisplayName(CCTVRCamera camera, string cameraId)
         {
             if (camera == null) return $"Camera_{cameraId}";
 
