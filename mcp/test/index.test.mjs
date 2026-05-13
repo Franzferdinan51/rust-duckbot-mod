@@ -16,6 +16,7 @@ test('exports a broad RustDuckBot MCP tool surface', () => {
   assert.equal(toolNames.has('rust_list_alerts'), true);
   assert.equal(toolNames.has('rust_set_automation_rule'), true);
   assert.equal(toolNames.has('rust_admin_command'), true);
+  assert.equal(toolNames.has('rust_rcon_command'), true);
   assert.equal(ALL_TOOLS.length >= 24, true);
 });
 
@@ -57,6 +58,23 @@ test('denies admin tools to regular users', async () => {
   assert.match(result.content[0].text, /Permission denied/);
 });
 
+test('routes RCON tool calls through the same admin gate and whitelist', async () => {
+  const state = createState(false);
+  handleRustMessage({
+    type: 'player_list',
+    players: [{ id: 'steam-admin', name: 'DuckAdmin', role: 'admin' }],
+  }, state);
+
+  const result = JSON.parse((await handleToolCall('rust_rcon_command', {
+    requester_id: 'steam-admin',
+    command: 'status',
+  }, state, DEFAULT_CONFIG)).content[0].text);
+
+  assert.equal(result.status, 'queued_no_rust_client');
+  assert.equal(state.outboundMessages[0].type, 'admin_command');
+  assert.equal(state.outboundMessages[0].command, 'status');
+});
+
 test('queues plugin actions when the Rust websocket bridge is not connected', async () => {
   const state = createState(false);
   handleRustMessage({
@@ -79,4 +97,3 @@ test('queues plugin actions when the Rust websocket bridge is not connected', as
   assert.equal(state.outboundMessages.length, 1);
   assert.equal(state.outboundMessages[0].type, 'camera_control');
 });
-

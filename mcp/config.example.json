@@ -13,6 +13,11 @@
     "ban",
     "unban",
     "say",
-    "global.say"
+    "global.say",
+    "inventory.give",
+    "teleport",
+    "teleport2me",
+    "weather",
+    "time"
   ]
 }

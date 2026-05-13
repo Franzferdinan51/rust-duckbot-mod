@@ -17,6 +17,7 @@ RustDuckBot turns Rust's computer station into a full interactive AI terminal. W
 - **⚔️ Combat intel** — death history, killer lookup, weapon stats (16 weapons), item comparison, loot finder
 - **🏠 Building helpers** — TC scanner (200m), cupboard coverage checker, decay scan
 - **🔔 Notification system** — night alerts, event subscriptions, notification list/clear
+- **🔐 AI RCON access** — admin-gated MCP/RCON commands with an allowlist on both the MCP bridge and plugin side
 
 ---
 
@@ -41,7 +42,7 @@ RustDuckBot turns Rust's computer station into a full interactive AI terminal. W
 | Provider | Config needed | Notes |
 |---|---|---|
 | `duckbot` | MCP URL | Original — DuckBot, OpenClaw, Codex, any MCP agent |
-| `lmstudio` | `LMStudioUrl` + `LMStudioModel` | Local LLM, no API key needed |
+| `lmstudio` | `LMStudioUrl` + `LMStudioModel` | Local LLM; API key optional if LM Studio requires one |
 | `openai` | `OpenAIApiKey` + `OpenAIBaseUrl` | Any OpenAI-compatible provider |
 | `anthropic` | `OpenAIApiKey` as `x-api-key` | Claude via Anthropic API |
 | `openrouter` | `OpenAIApiKey` | 100+ models, free tier available |
@@ -69,7 +70,7 @@ RustDuckBot turns Rust's computer station into a full interactive AI terminal. W
 | **Utility** | `time`, `weather`, `wipe`, `monuments`/`monu`, `events`, `server`, `uptime` |
 | **Automation** | `automation`, `auto <rule>` |
 | **Fun** | `8ball`, `flip`, `roll`, `rps`, `joke`, `fortune`, `bet`, `quote`, `events`, `recipes`, `blueprint`, `research`, `news` |
-| **Admin** | `admin`, `teleport`/`tp`, `spawn`, `wipe`, `mark`, `bookmarks`, `bookmark`, `removealt` |
+| **Admin** | `admin <rcon_command>`, `teleport`/`tp`, `spawn`, `wipe`, `mark`, `bookmarks`, `bookmark`, `removealt` |
 
 ---
 
@@ -81,12 +82,22 @@ cp src/DuckBotMod.cs /path/to/rust/server/oxide/plugins/RustDuckBot.cs
 ```
 Reload from server console: `oxide.reload RustDuckBot`
 
+**WindowsGSM:** open the server's file browser from WindowsGSM and copy `src/DuckBotMod.cs` to:
+```text
+serverfiles\oxide\plugins\RustDuckBot.cs
+```
+The WindowsGSM RustOxideWithRustEdit plugin starts `RustDedicated.exe` with `+rcon.web 1` and writes `server.cfg` in the server files directory. DuckBot config appears after first load at:
+```text
+serverfiles\oxide\config\RustDuckBot.json
+```
+
 ### 2. Configure AI (edit `oxide/config/RustDuckBot.json`)
 
-**LM Studio (local, no API key):**
+**LM Studio on the same Windows host:**
 ```json
-{ "AgentProvider": "lmstudio", "LMStudioUrl": "http://localhost:1234", "LMStudioModel": "qwen3.5-9b" }
+{ "AgentProvider": "lmstudio", "LMStudioUrl": "http://127.0.0.1:1234", "LMStudioModel": "qwen3.5-9b", "LMStudioApiKey": "" }
 ```
+RustDuckBot accepts either `http://127.0.0.1:1234` or `http://127.0.0.1:1234/v1`; it normalizes the request to `/v1/chat/completions`. Set `LMStudioApiKey` only if LM Studio's server is configured to require one.
 
 **DuckBot MCP agent:**
 ```json
@@ -103,7 +114,27 @@ Reload from server console: `oxide.reload RustDuckBot`
 cd mcp && npm install && npm start
 ```
 
-### 4. Use in-game
+### 4. Enable RCON for AI admin tools
+
+For WindowsGSM, set the same RCON password in `server.cfg` and `oxide/config/RustDuckBot.json`. The WindowsGSM plugin enables WebRCON (`+rcon.web 1`) for you.
+
+```json
+{
+  "EnableWebSocketRCON": true,
+  "RCONPort": 28016,
+  "RCONPassword": "same-password-as-server.cfg",
+  "AllowedRCONCommands": ["status", "serverinfo", "say", "global.say", "kick", "ban", "banid", "unban", "teleport", "teleport2me"]
+}
+```
+
+For MCP/agent use, mirror the command allowlist:
+```bash
+set RUST_DUCKBOT_ADMIN_TOKEN=change-me
+set RUST_DUCKBOT_ALLOWED_COMMANDS=status,serverinfo,say,global.say,kick,ban,banid,unban,teleport,teleport2me
+```
+On macOS/Linux use `export` instead of `set`. The agent tool is `rust_rcon_command` and still requires an admin player role plus the admin token when configured.
+
+### 5. Use in-game
 ```
 /db help              all commands
 /db chat              open chat panel (also auto-opens at computer station)
@@ -150,8 +181,9 @@ Full config is written to `oxide/config/RustDuckBot.json` on first load.
 |---|---|---|
 | `AgentProvider` | `duckbot` | `duckbot` \| `lmstudio` \| `openai` \| `anthropic` \| `openrouter` |
 | `AgentConfig` | `http://localhost:18797` | URL for DuckBot MCP agent |
-| `LMStudioUrl` | `http://localhost:1234` | LM Studio HTTP URL |
+| `LMStudioUrl` | `http://127.0.0.1:1234` | LM Studio HTTP URL; `/v1` optional |
 | `LMStudioModel` | `local-model` | Model name |
+| `LMStudioApiKey` | _(empty)_ | Optional Bearer token for LM Studio |
 | `OpenAIApiKey` | _(empty)_ | API key for OpenAI / Anthropic / OpenRouter |
 | `OpenAIBaseUrl` | `https://api.openai.com/v1` | OpenAI-compatible base URL |
 | `OpenAIModel` | `gpt-4o-mini` | Model name |
@@ -207,6 +239,10 @@ Full config is written to `oxide/config/RustDuckBot.json` on first load.
 | `MaxChatHistory` | `100` | AI chat history per player |
 | `RaidAlertRadius` | `100` | Meters for nearby raid alerts |
 | `DecayAlertHoursBefore` | `24` | Hours before decay to warn |
+| `EnableWebSocketRCON` | `true` | Allow plugin to connect to Rust WebRCON |
+| `RCONPort` | `28016` | Rust WebRCON port |
+| `RCONPassword` | _(empty)_ | Must match `+rcon.password` |
+| `AllowedRCONCommands` | safe list | First-word allowlist for AI/MCP RCON commands |
 
 ---
 
@@ -247,7 +283,7 @@ docs/
 | `RUST_DUCKBOT_BRIDGE_PORT` | `3851` | WebSocket bridge port |
 | `MCP_STDIO` | `1` | Enable stdio MCP transport |
 | `RUST_DUCKBOT_ADMIN_TOKEN` | _(none)_ | Extra secret for admin tools |
-| `RUST_DUCKBOT_ALLOWED_COMMANDS` | _(safe list)_ | Comma-separated whitelist for admin commands |
+| `RUST_DUCKBOT_ALLOWED_COMMANDS` | _(safe list)_ | Comma-separated whitelist for admin/RCON commands |
 
 ---
 
@@ -255,7 +291,8 @@ docs/
 
 - Keep the MCP bridge bound to **localhost** unless you know why it must be exposed
 - Use `RUST_DUCKBOT_ADMIN_TOKEN` and a narrow allowed commands list on public servers
-- Admin commands are role-checked at the plugin level
+- AI RCON commands are role-checked by MCP, token-checked when configured, and allowlist-checked again inside the plugin
+- In-game `/db admin <command>` is for trusted RustDuckBot admins only
 - Teleport warmup prevents abuse — moving cancels, but mods/admins bypass it
 - Customise `OutpostX/Y/Z` and `BanditX/Y/Z` in config for custom maps
 - Report queue is in-memory — resets on plugin reload (persistent storage can be added via data files)

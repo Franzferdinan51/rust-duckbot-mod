@@ -550,6 +550,21 @@ export const ALL_TOOLS = [
     },
   },
   {
+    name: 'rust_rcon_command',
+    description: 'Execute a whitelisted Rust WebRCON command through the RustDuckBot plugin. Requires admin and optional admin_token.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        command: schema.string('Raw Rust RCON command. The first word must be in the whitelist.'),
+        requester_id: schema.string('Admin Steam ID.'),
+        player_name: schema.string('Admin display name for audit.'),
+        requester_role: schema.role,
+        admin_token: schema.string('Optional server admin token when configured.'),
+      },
+      required: ['command'],
+    },
+  },
+  {
     name: 'rust_kick_player',
     description: 'Kick a player. Requires mod or higher.',
     inputSchema: {
@@ -852,6 +867,7 @@ export async function handleToolCall(
     }
 
     case 'rust_admin_command':
+    case 'rust_rcon_command':
     case 'rust_execute_command': {
       const denied = requireRole(state, args, 'admin') ?? requireAdminToken(config, args);
       if (denied) return denied;
