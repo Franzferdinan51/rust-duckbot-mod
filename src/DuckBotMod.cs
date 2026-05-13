@@ -26,8 +26,16 @@ namespace RustDuckBot
         {
             public string MCPServerHost = "127.0.0.1";
             public int MCPServerPort = 3851;
-            public string AgentProvider = "duckbot";
+            public string AgentProvider = "duckbot";  // duckbot | lmstudio | openai | anthropic | openrouter
             public string AgentConfig = "http://localhost:18797";
+            // LM Studio settings (used when AgentProvider = "lmstudio")
+            public string LMStudioUrl = "http://localhost:1234";
+            public string LMStudioModel = "local-model";
+            public string LMStudioApiKey = ""; // Optional: for auth if required
+            // OpenAI-compatible settings (used for openai/anthropic/openrouter)
+            public string OpenAIApiKey = "";
+            public string OpenAIBaseUrl = "https://api.openai.com/v1";
+            public string OpenAIModel = "gpt-4o-mini";
             public bool EnableCameraControl = true;
             public bool EnableAdminCommands = true;
             public bool EnableAutoFeatures = true;
@@ -62,6 +70,7 @@ namespace RustDuckBot
 
         private MCPClient _mcpClient;
         private AgentBridge _agentBridge;
+        private LocalAIBridge _localAI;
         private Timer _heartbeatTimer;
         private Timer _automationTimer;
         private Timer _decayTimer;
@@ -240,7 +249,7 @@ namespace RustDuckBot
                 });
 
                 // Quick actions row
-                var actions = new[] { ("📷", "cameras"), ("🔒", "security"), ("🛒", "shop"), ("📡", "radar"), ("⚙", "automation"), ("❓", "help") };
+                var actions = new[] { ("📷", "cameras"), ("🔒", "security"), ("💬", "chat"), ("📡", "radar"), ("⚙", "automation"), ("❓", "help") };
                 float xStart = 0.02f;
                 float xStep = 0.16f;
                 for (int i = 0; i < actions.Length; i++)
@@ -693,6 +702,7 @@ namespace RustDuckBot
         private void Init()
         {
             _agentBridge = new AgentBridge(_config.AgentProvider, _config.AgentConfig);
+            _localAI = new LocalAIBridge(_config);
             _mcpClient = new MCPClient(_config.MCPServerHost, _config.MCPServerPort, this);
 
             // Permissions
@@ -727,8 +737,9 @@ namespace RustDuckBot
             // Initialize monument camera codes
             InitializeMonumentCodes();
 
-            PrintAsh("<color=#FFD700>RustDuckBot v1.3.0</color> loaded. Computer Station integration: <color=#00FF00>ENABLED</color>");
-            PrintAsh($"MCP: ws://{_config.MCPServerHost}:{_config.MCPServerPort} | Agent: {_config.AgentProvider}");
+            PrintAsh("<color=#FFD700>RustDuckBot v1.3.0</color> loaded. Computer Station: <color=#00FF00>ENABLED</color> | Chat Panel: <color=#00FF00>ENABLED</color>");
+            var aiMode = _config.AgentProvider == "duckbot" ? $"DuckBot MCP ({_config.AgentConfig})" : $"Local AI: {_config.AgentProvider}";
+            PrintAsh($"AI: <color=#FFD700>{aiMode}</color> | MCP: ws://{_config.MCPServerHost}:{_config.MCPServerPort}");
         }
 
         private void InitializeMonumentCodes()
@@ -1137,6 +1148,266 @@ namespace RustDuckBot
         }
 
         // =====================================================================
+        // CUI CHAT SCREEN — rendered inside the computer station terminal
+        // =====================================================================
+
+        // Per-player input field state (keyed by SteamID)
+        private Dictionary<ulong, string> _chatInputDraft = new Dictionary<ulong, string>();
+
+        /// <summary>Called by CUI input handler when player types in the chat field.</summary>
+        private void OnChatInputChanged(BasePlayer player, string text)
+        {
+            if (player == null) return;
+            _chatInputDraft[player.userID] = text;
+        }
+
+        /// <summary>Called when player presses Enter / SEND in the chat panel.</summary>
+        private void OnChatSubmit(BasePlayer player, string text)
+        {
+            if (player == null || string.IsNullOrWhiteSpace(text)) return;
+            _chatInputDraft[player.userID] = "";
+
+            var session = GetOrCreateSession(player);
+            session.IsAtComputerStation = IsPlayerAtComputerStation(player);
+            HandleAIChat(player, session, text);
+
+            // Refresh the chat panel so the new message appears
+            timer.Once(0.3f, () =>
+            {
+                if (player.IsConnected() && IsPlayerAtComputerStation(player))
+                    ShowChatPanel(player);
+            });
+        }
+
+        /// <summary>Show the in-terminal chat panel with AI conversation history.</summary>
+        private void ShowChatPanel(BasePlayer player)
+        {
+            if (player == null || !player.IsConnected()) return;
+
+            // Blow away old terminal UI and rebuild as chat-focused layout
+            CuiHelper.DestroyUi(player, "duckbot_chat");
+            CuiHelper.DestroyUi(player, "duckbot_terminal");
+
+            var container = new CuiElementContainer();
+
+            // ── FULL-SCREEN CHAT PANEL ────────────────────────────────────────
+            container.Add(new CuiElement
+            {
+                Name = "duckbot_chat",
+                Parent = "Overlay",
+                Components = {
+                    new CuiRectTransformComponent { AnchorMin = "0.55 0", AnchorMax = "0.99 1" },
+                    new CuiImageComponent { Color = "0.04 0.04 0.07 0.97", Material = "assets/content/ui/uibackgroundblur.mat" }
+                }
+            });
+
+            // ── HEADER ──────────────────────────────────────────────────────
+            container.Add(new CuiElement
+            {
+                Parent = "duckbot_chat",
+                Components = {
+                    new CuiRectTransformComponent { AnchorMin = "0 0.93", AnchorMax = "1 1" },
+                    new CuiImageComponent { Color = "0.12 0.09 0.04 1" }
+                }
+            });
+            container.Add(new CuiElement
+            {
+                Parent = "duckbot_chat",
+                Components = {
+                    new CuiRectTransformComponent { AnchorMin = "0 0.93", AnchorMax = "1 1" },
+                    new CuiTextComponent { Text = "💬  TERMINAL CHAT", FontSize = 13, Align = TextAnchor.MiddleLeft, Color = "1 0.84 0 1" }
+                }
+            });
+            // Back button (×)
+            container.Add(new CuiElement
+            {
+                Name = "duckbot_chat_back_btn",
+                Parent = "duckbot_chat",
+                Components = {
+                    new CuiRectTransformComponent { AnchorMin = "0.88 0.1", AnchorMax = "0.97 0.9" },
+                    new CuiImageComponent { Color = "0.2 0.08 0.08 1" }
+                }
+            });
+            container.Add(new CuiElement
+            {
+                Parent = "duckbot_chat_back_btn",
+                Components = {
+                    new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = "1 1" },
+                    new CuiTextComponent { Text = "✕", FontSize = 14, Align = TextAnchor.MiddleCenter, Color = "1 0.5 0.5 1" }
+                }
+            });
+
+            // ── MESSAGE AREA ─────────────────────────────────────────────────
+            container.Add(new CuiElement
+            {
+                Parent = "duckbot_chat",
+                Components = {
+                    new CuiRectTransformComponent { AnchorMin = "0.02 0.14", AnchorMax = "0.98 0.92" },
+                    new CuiImageComponent { Color = "0.03 0.03 0.05 1" }
+                }
+            });
+
+            var session = GetOrCreateSession(player);
+            var history = session?.ChatHistory ?? new List<ChatEntry>();
+            var recent = history.Skip(Math.Max(0, history.Count - 30)).ToList();
+
+            float msgAreaH = 0.92f - 0.14f; // 0.78 total height
+            float msgH = msgAreaH / 25f;
+            int maxDisplay = Math.Min(25, recent.Count);
+
+            for (int i = 0; i < maxDisplay; i++)
+            {
+                var entry = recent[recent.Count - maxDisplay + i];
+                bool isAi = entry.IsAI;
+                float yBottom = 0.14f + (msgAreaH - (i + 1) * msgH);
+                float yTop = yBottom + msgH * 0.9f;
+                var timeStr = entry.Time.ToString("HH:mm");
+                var senderColor = isAi ? "#00DD88" : (entry.Sender == "DuckBot" ? "#FFD700" : "#4DA6FF");
+
+                container.Add(new CuiElement
+                {
+                    Parent = "duckbot_chat",
+                    Components = {
+                        new CuiRectTransformComponent { AnchorMin = $"0.02 {yBottom}", AnchorMax = $"0.15 {yTop}" },
+                        new CuiTextComponent { Text = timeStr, FontSize = 7, Align = TextAnchor.UpperRight, Color = "0.4 0.4 0.4 1" }
+                    }
+                });
+                container.Add(new CuiElement
+                {
+                    Parent = "duckbot_chat",
+                    Components = {
+                        new CuiRectTransformComponent { AnchorMin = $"0.16 {yBottom}", AnchorMax = $"0.98 {yTop}" },
+                        new CuiTextComponent {
+                            Text = $"<color={senderColor}><b>{entry.Sender}:</b></color> {entry.Message}",
+                            FontSize = 9, Align = TextAnchor.UpperLeft,
+                            Color = isAi ? "0.85 1 0.9 1" : "0.85 0.85 0.85 1"
+                        }
+                    }
+                });
+            }
+
+            if (history.Count == 0)
+            {
+                container.Add(new CuiElement
+                {
+                    Parent = "duckbot_chat",
+                    Components = {
+                        new CuiRectTransformComponent { AnchorMin = "0.02 0.4", AnchorMax = "0.98 0.6" },
+                        new CuiTextComponent { Text = "<color=#888>No messages yet. Start chatting below!</color>", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = "0.4 0.4 0.4 1" }
+                    }
+                });
+            }
+
+            // ── INPUT AREA ───────────────────────────────────────────────────
+            container.Add(new CuiElement
+            {
+                Parent = "duckbot_chat",
+                Components = {
+                    new CuiRectTransformComponent { AnchorMin = "0 0.055", AnchorMax = "1 0.13" },
+                    new CuiImageComponent { Color = "0.08 0.06 0.04 1" }
+                }
+            });
+            container.Add(new CuiElement
+            {
+                Name = "duckbot_chat_input_bg",
+                Parent = "duckbot_chat",
+                Components = {
+                    new CuiRectTransformComponent { AnchorMin = "0.02 0.065", AnchorMax = "0.85 0.12" },
+                    new CuiImageComponent { Color = "0.08 0.08 0.1 1" }
+                }
+            });
+
+            var draft = _chatInputDraft.TryGetValue(player.userID, out var d) ? d : "";
+            container.Add(new CuiElement
+            {
+                Parent = "duckbot_chat_input_bg",
+                Components = {
+                    new CuiRectTransformComponent { AnchorMin = "0.01 0", AnchorMax = "0.99 1" },
+                    new CuiInputFieldComponent
+                    {
+                        Text = draft,
+                        Command = "db_chat_input ",
+                        FontSize = 11, Color = "0.9 0.9 0.9 1",
+                        Align = TextAnchor.MiddleLeft, CharLimit = 300,
+                        IsPassword = false, ReadOnly = false,
+                        NeedsCursor = true, Autofocus = true,
+                    }
+                }
+            });
+
+            // Send button
+            container.Add(new CuiElement
+            {
+                Name = "duckbot_chat_send_btn",
+                Parent = "duckbot_chat",
+                Components = {
+                    new CuiRectTransformComponent { AnchorMin = "0.87 0.065", AnchorMax = "0.97 0.12" },
+                    new CuiImageComponent { Color = "0.8 0.55 0 1" }
+                }
+            });
+            container.Add(new CuiElement
+            {
+                Parent = "duckbot_chat_send_btn",
+                Components = {
+                    new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = "1 1" },
+                    new CuiTextComponent { Text = "SEND", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = "1 1 1 1" }
+                }
+            });
+
+            // Quick prompt buttons
+            var quickPrompts = new[] { "Who is online?", "Any raiders nearby?", "Show alerts", "Base status" };
+            container.Add(new CuiElement
+            {
+                Parent = "duckbot_chat",
+                Components = {
+                    new CuiRectTransformComponent { AnchorMin = "0 0.005", AnchorMax = "1 0.05" },
+                    new CuiImageComponent { Color = "0.05 0.04 0.03 1" }
+                }
+            });
+
+            float xQ = 0.01f;
+            foreach (var prompt in quickPrompts)
+            {
+                float width = 0.24f;
+                var btnHash = Math.Abs(prompt.GetHashCode()) & 0xFFFF;
+                container.Add(new CuiElement
+                {
+                    Name = $"duckbot_qbtn_{btnHash}",
+                    Parent = "duckbot_chat",
+                    Components = {
+                        new CuiRectTransformComponent { AnchorMin = $"{xQ} 0.01", AnchorMax = $"{xQ + width - 0.01} 0.05" },
+                        new CuiImageComponent { Color = "0.12 0.09 0.06 1" }
+                    }
+                });
+                container.Add(new CuiElement
+                {
+                    Parent = $"duckbot_qbtn_{btnHash}",
+                    Components = {
+                        new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = "1 1" },
+                        new CuiTextComponent { Text = $"⚡ {prompt}", FontSize = 7, Align = TextAnchor.MiddleCenter, Color = "0.9 0.75 0.4 1" }
+                    }
+                });
+                xQ += width;
+            }
+
+            CuiHelper.AddUi(player, container);
+
+            // Register console command: /db_chat_input <text> is called by the input field
+            cmd.AddConsoleCommand("db_chat_input", this, nameof(CmdChatInput));
+        }
+
+        private void CmdChatInput(ConsoleSystem.Arg arg)
+        {
+            var player = arg.Connection?.player as BasePlayer;
+            if (player == null) return;
+            var text = arg.FullString?.Trim() ?? "";
+            if (!string.IsNullOrEmpty(text))
+                OnChatSubmit(player, text);
+            else
+                ShowChatPanel(player); // re-render on empty enter
+        }
+
+        // =====================================================================
         // PLAYER SESSION HELPERS
         // =====================================================================
 
@@ -1220,6 +1491,7 @@ namespace RustDuckBot
                 case "control": case "ctrl": ControlCamera(player, session, argStr); break;
                 case "ptz": ControlPTZ(player, session, argStr); break;
                 case "recordings": case "rec": ListRecordings(player, session, argStr); break;
+                case "chat": case "talk": ShowChatPanel(player); break;
 
                 // === SECURITY ===
                 case "security": case "sec": ShowSecurityDashboard(player, session); break;
@@ -1502,9 +1774,10 @@ namespace RustDuckBot
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
             PrintToChat(player, "<color=#FFD700>      SERVER INFORMATION</color>");
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
-            PrintToChat(player, $"<color=#FFD700>Version:</color> Rust vlatest");
-            PrintToChat(player, $"<color=#FFD700>Plugin:</color> RustDuckBot v1.2.0");
-            PrintToChat(player, $"<color=#FFD700>AI:</color> {_config.AgentProvider}");
+            PrintToChat(player, $"<color=#FFD700>Plugin:</color> RustDuckBot v1.3.0");
+            var aiProvider = _config.AgentProvider;
+            var aiDetail = aiProvider == "duckbot" ? $"{_config.AgentConfig}" : (aiProvider == "lmstudio" ? $"{_config.LMStudioUrl}/{_config.LMStudioModel}" : _config.OpenAIBaseUrl + "/" + _config.OpenAIModel);
+            PrintToChat(player, $"<color=#FFD700>AI Mode:</color> {aiProvider} — {aiDetail}");
             PrintToChat(player, $"<color=#FFD700>Players:</color> {BasePlayer.activePlayerList.Count} online, {BasePlayer.sleepingPlayerList.Count} sleeping");
             PrintToChat(player, $"<color=#FFD700>Time:</color> {GetGameTime()}");
             PrintToChat(player, $"<color=#FFD700>Wipe:</color> {GetWipeInfo()}");
@@ -2432,7 +2705,19 @@ namespace RustDuckBot
             session.ChatHistory.Add(new ChatEntry { Sender = player.displayName, Message = message, Time = DateTime.Now });
             if (session.ChatHistory.Count > _config.MaxChatHistory) session.ChatHistory.RemoveAt(0);
 
-            var response = _agentBridge.GetResponse(player.displayName, session.Role, message, session.ChatHistory);
+            string response;
+
+            // Route to the right AI backend
+            if (_localAI.IsLocalProvider)
+            {
+                // Direct LM Studio / OpenAI / Anthropic / OpenRouter
+                response = _localAI.GetResponse(player.displayName, session.Role, message, session.ChatHistory);
+            }
+            else
+            {
+                // DuckBot MCP / agent bridge
+                response = _agentBridge.GetResponse(player.displayName, session.Role, message, session.ChatHistory);
+            }
 
             session.ChatHistory.Add(new ChatEntry { Sender = "DuckBot", Message = response, Time = DateTime.Now, IsAI = true });
 
@@ -2441,7 +2726,9 @@ namespace RustDuckBot
             foreach (var line in lines)
                 PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {line.Trim()}");
 
-            _mcpClient.SendMessage(new { type = "ai_chat", playerId = player.UserIDString, playerName = player.displayName, message, response });
+            // Send to MCP (skip if we used a local provider without MCP)
+            if (_mcpClient?.IsConnected() == true)
+                _mcpClient.SendMessage(new { type = "ai_chat", playerId = player.UserIDString, playerName = player.displayName, message, response });
         }
 
         private void SearchKnowledge(BasePlayer player, PlayerSession session, string query)
@@ -3920,6 +4207,164 @@ namespace RustDuckBot
         public static object Deserialize(string json)
         {
             return Newtonsoft.Json.JsonConvert.DeserializeObject(json);
+        }
+    }
+
+    // =====================================================================
+    // LOCAL AI BRIDGE — supports DuckBot/MCP, LM Studio, OpenAI, Anthropic, OpenRouter
+    // Falls back gracefully when no API key is configured.
+    // =====================================================================
+
+    private class LocalAIBridge
+    {
+        private readonly string _provider;
+        private readonly string _lmUrl;
+        private readonly string _lmModel;
+        private readonly string _lmKey;
+        private readonly string _openAiKey;
+        private readonly string _openAiBase;
+        private readonly string _openAiModel;
+        private readonly string _systemPrompt;
+
+        public LocalAIBridge(ConfigData cfg)
+        {
+            _provider = cfg.AgentProvider;
+            _lmUrl = cfg.LMStudioUrl.TrimEnd('/');
+            _lmModel = cfg.LMStudioModel;
+            _lmKey = cfg.LMStudioApiKey;
+            _openAiKey = cfg.OpenAIApiKey;
+            _openAiBase = cfg.OpenAIBaseUrl.TrimEnd('/');
+            _openAiModel = cfg.OpenAIModel;
+            _systemPrompt = BuildSystemPrompt(cfg);
+        }
+
+        public string GetResponse(string playerName, string role, string message, List<ChatEntry> history)
+        {
+            try
+            {
+                return _provider switch
+                {
+                    "lmstudio" => LMPrompt(message, history),
+                    "openai" => OAI Prompt(message, history, _openAiKey, _openAiBase, _openAiModel),
+                    "anthropic" => AnthropicPrompt(message, history),
+                    "openrouter" => OAIPrompt(message, history, _openAiKey, "https://openrouter.ai/api/v1", _openAiModel),
+                    _ => null! // Fall back to DuckBotAgentBridge
+                };
+            }
+            catch (Exception ex)
+            {
+                return $"⚠ AI error ({_provider}): {ex.Message}";
+            }
+        }
+
+        public bool IsLocalProvider => _provider != "duckbot";
+        public string ProviderName => _provider;
+
+        // ── LM Studio (OpenAI-compatible /v1/chat/completions) ───────────────
+
+        private string LMPrompt(string message, List<ChatEntry> history)
+        {
+            using var wb = new System.Net.WebClient();
+            wb.Headers["Content-Type"] = "application/json";
+            if (!string.IsNullOrEmpty(_lmKey))
+                wb.Headers["Authorization"] = $"Bearer {_lmKey}";
+
+            var body = new System.Collections.Specialized.NameValueCollection
+            {
+                ["model"] = _lmModel,
+                ["messages"] = BuildMessages(message, history, _systemPrompt),
+                ["max_tokens"] = "600",
+                ["stream"] = "false"
+            };
+
+            var raw = wb.UploadString($"{_lmUrl}/v1/chat/completions", "POST",
+                SimpleJson.Serialize(new { model = _lmModel, messages = BuildMessages(message, history, _systemPrompt), max_tokens = 600, stream = false }));
+
+            dynamic? resp = Deserialize(raw);
+            var content = resp?["choices"]?[0]?["message"]?["content"];
+            return content ?? "No response from local AI.";
+        }
+
+        // ── OpenAI-compatible ───────────────────────────────────────────────
+
+        private string OAIPrompt(string message, List<ChatEntry> history, string apiKey, string baseUrl, string model)
+        {
+            if (string.IsNullOrEmpty(apiKey))
+                return "⚠ OpenAI API key not configured. Set OpenAIApiKey in config.";
+
+            using var wb = new System.Net.WebClient();
+            wb.Headers["Content-Type"] = "application/json";
+            wb.Headers["Authorization"] = $"Bearer {apiKey}";
+
+            var raw = wb.UploadString($"{baseUrl}/chat/completions", "POST",
+                SimpleJson.Serialize(new { model, messages = BuildMessages(message, history, _systemPrompt), max_tokens = 800 }));
+
+            dynamic? resp = Deserialize(raw);
+            var content = resp?["choices"]?[0]?["message"]?["content"];
+            return content ?? "No response from AI.";
+        }
+
+        // ── Anthropic (Claude) ───────────────────────────────────────────────
+
+        private string AnthropicPrompt(string message, List<ChatEntry> history)
+        {
+            if (string.IsNullOrEmpty(_openAiKey))
+                return "⚠ Anthropic API key not set as OpenAIApiKey in config.";
+
+            using var wb = new System.Net.WebClient();
+            wb.Headers["Content-Type"] = "application/json";
+            wb.Headers["x-api-key"] = _openAiKey;
+            wb.Headers["anthropic-version"] = "2023-06-01";
+
+            var systemMsg = new { role = "system", content = _systemPrompt };
+            var userMsg = new { role = "user", content = message };
+            var msgs = new List<object> { systemMsg, userMsg };
+
+            foreach (var h in history.TakeLast(20))
+                msgs.Add(new { role = h.IsAI ? "assistant" : "user", content = $"{h.Sender}: {h.Message}" });
+
+            var body = new { model = _openAiModel, max_tokens = 800, messages = msgs };
+            var raw = wb.UploadString("https://api.anthropic.com/v1/messages", "POST", SimpleJson.Serialize(body));
+
+            dynamic? resp = Deserialize(raw);
+            var content = resp?["content"]?[0]?["text"];
+            return content ?? "No response from Claude.";
+        }
+
+        // ── Helpers ─────────────────────────────────────────────────────────
+
+        private object[] BuildMessages(string message, List<ChatEntry> history, string system)
+        {
+            var msgs = new List<object> { new { role = "system", content = system } };
+            foreach (var h in history.TakeLast(16))
+                msgs.Add(new { role = h.IsAI ? "assistant" : "user", content = $"{h.Sender}: {h.Message}" });
+            msgs.Add(new { role = "user", content = message });
+            return msgs.ToArray();
+        }
+
+        private string BuildSystemPrompt(ConfigData cfg)
+        {
+            return $@"You are DuckBot, an AI assistant inside a Rust game server. Respond as a helpful, friendly NPC.
+Player role hierarchy: user < vip < mod < admin.
+
+You have access to these Rust server features (via the Rust plugin):
+- CCTV camera surveillance (monument cameras + base cameras)
+- Security alerts (raids, decays, breaches, turret kills)
+- Player tracking and online status
+- Base management (doors, lights, turrets, auth)
+- Trading and shop listings
+- Automation rules
+- Intel: kill stats, raid history, map markers
+
+Rules:
+- Keep responses under 200 words
+- Be concise and useful in the Rust game context
+- Answer Rust-related questions helpfully
+- If you don't know, say so — don't make up commands
+- Use emoji sparingly
+- Never break character as an in-game AI terminal
+
+Server config: CameraControl={cfg.EnableCameraControl}, RaidAlerts={cfg.EnableRaidAlerts}, DecayAlerts={cfg.EnableDecayAlerts}";
         }
     }
 
