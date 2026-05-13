@@ -187,7 +187,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
 };
 
 function loadConfig(): ServerConfig {
-  const configPath = process.env['MCP_CONFIG_PATH'] ?? join(__dirname, '../../config.json');
+  const configPath = process.env['MCP_CONFIG_PATH'] ?? join(__dirname, '../config.json');
   if (!existsSync(configPath)) return DEFAULT_CONFIG;
 
   try {
