@@ -1,0 +1,23 @@
+{
+  "stdioEnabled": true,
+  "bridgeEnabled": true,
+  "bridgeHost": "127.0.0.1",
+  "bridgePort": 3851,
+  "logLevel": "info",
+  "seedDemoData": true,
+  "maxHistory": 200,
+  "allowedAdminCommands": [
+    "status",
+    "serverinfo",
+    "kick",
+    "ban",
+    "unban",
+    "say",
+    "global.say",
+    "inventory.give",
+    "teleport",
+    "teleport2me",
+    "weather",
+    "time"
+  ]
+}
