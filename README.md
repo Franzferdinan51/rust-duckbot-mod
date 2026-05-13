@@ -4,6 +4,8 @@
 
 RustDuckBot turns Rust's computer station into a full interactive AI terminal. When a player sits at a Computer Station item in-game, they get a CUI overlay panel — and every player gets 13 teleport commands, full moderation tools, economy rewards, combat intel, building helpers, and 176+ total commands. Powered by DuckBot, LM Studio, OpenAI, Claude, or OpenRouter.
 
+**WindowsGSM is the primary supported host path right now.** macOS and Linux are supported for development, local MCP agents, and non-Windows Rust hosts, but the setup notes below start with WindowsGSM because that is the main deployment target.
+
 ---
 
 ## What's New in v1.4.x
@@ -18,6 +20,50 @@ RustDuckBot turns Rust's computer station into a full interactive AI terminal. W
 - **🏠 Building helpers** — TC scanner (200m), cupboard coverage checker, decay scan
 - **🔔 Notification system** — night alerts, event subscriptions, notification list/clear
 - **🔐 AI RCON access** — admin-gated MCP/RCON commands with an allowlist on both the MCP bridge and plugin side
+- **🎁 AI kit tools** — agents can list kits and admin-gate kit grants through MCP, while players can use `/db kit` in-game
+
+---
+
+## WindowsGSM First Setup
+
+This is the path to use with [WindowsGSM.RustOxideWithRustEdit](https://github.com/Joe90384/WindowsGSM.RustOxideWithRustEdit).
+
+1. Install/start the RustOxideWithRustEdit server in WindowsGSM.
+2. Use WindowsGSM's file browser or open the server files folder.
+3. Copy `src/DuckBotMod.cs` to:
+   ```text
+   serverfiles\oxide\plugins\RustDuckBot.cs
+   ```
+4. Start the server and watch the Oxide console/logs for `RustDuckBot v1.4.0 loaded`.
+5. Edit the generated config:
+   ```text
+   serverfiles\oxide\config\RustDuckBot.json
+   ```
+6. Reload:
+   ```text
+   oxide.reload RustDuckBot
+   ```
+
+If `/db help` does nothing, the plugin is almost certainly not loaded. `/db help` does not call LM Studio or any AI backend. Check:
+
+- `serverfiles\oxide\logs\RustDuckBot*.txt`
+- WindowsGSM server console output
+- `serverfiles\server.log`
+- Whether the file is named exactly `RustDuckBot.cs`
+- Whether Oxide/uMod compiled it without C# errors
+
+For LM Studio testing on the same Windows host:
+
+```json
+{
+  "AgentProvider": "lmstudio",
+  "LMStudioUrl": "http://127.0.0.1:1234",
+  "LMStudioModel": "your-loaded-model",
+  "LMStudioApiKey": ""
+}
+```
+
+If LM Studio has API-key mode enabled, set `LMStudioApiKey`. Otherwise leave it blank. RustDuckBot normalizes `LMStudioUrl` to `/v1/chat/completions`, so both `http://127.0.0.1:1234` and `http://127.0.0.1:1234/v1` work.
 
 ---
 
@@ -46,6 +92,21 @@ RustDuckBot turns Rust's computer station into a full interactive AI terminal. W
 | `openai` | `OpenAIApiKey` + `OpenAIBaseUrl` | Any OpenAI-compatible provider |
 | `anthropic` | `OpenAIApiKey` as `x-api-key` | Claude via Anthropic API |
 | `openrouter` | `OpenAIApiKey` | 100+ models, free tier available |
+
+### 🧠 MCP Agent Powers
+
+Any interchangeable MCP-capable agent can use the tool surface. Regular player features and admin features are separated by role checks, with optional `RUST_DUCKBOT_ADMIN_TOKEN` for extra safety.
+
+| Tool Area | Examples |
+|---|---|
+| Context | `rust_computer_context`, `rust_agent_status`, `rust_server_status` |
+| Players | `rust_list_players`, `rust_find_player`, `rust_get_player_info` |
+| Cameras | `rust_list_cameras`, `rust_view_camera`, `rust_control_camera`, `rust_get_camera_snapshot` |
+| Security | `rust_list_alerts`, `rust_ack_alert`, `rust_security_scan`, `rust_lockdown` |
+| Kits | `rust_list_kits`, `rust_give_kit` |
+| Economy | `rust_market_listings` |
+| Map/Base | `rust_list_map_markers`, `rust_add_map_marker`, `rust_base_status` |
+| Admin/RCON | `rust_admin_command`, `rust_rcon_command`, `rust_kick_player`, `rust_ban_player` |
 
 ---
 
@@ -133,6 +194,8 @@ set RUST_DUCKBOT_ADMIN_TOKEN=change-me
 set RUST_DUCKBOT_ALLOWED_COMMANDS=status,serverinfo,say,global.say,kick,ban,banid,unban,teleport,teleport2me
 ```
 On macOS/Linux use `export` instead of `set`. The agent tool is `rust_rcon_command` and still requires an admin player role plus the admin token when configured.
+
+The agent can also use `rust_list_kits` and `rust_give_kit`; kit grants are admin-gated and arrive in the plugin as a `kit_give` bridge message.
 
 ### 5. Use in-game
 ```
@@ -292,6 +355,7 @@ docs/
 - Keep the MCP bridge bound to **localhost** unless you know why it must be exposed
 - Use `RUST_DUCKBOT_ADMIN_TOKEN` and a narrow allowed commands list on public servers
 - AI RCON commands are role-checked by MCP, token-checked when configured, and allowlist-checked again inside the plugin
+- AI kit grants are admin-gated. Normal players should use `/db kit <name>` for their own cooldown/permission-limited kits
 - In-game `/db admin <command>` is for trusted RustDuckBot admins only
 - Teleport warmup prevents abuse — moving cancels, but mods/admins bypass it
 - Customise `OutpostX/Y/Z` and `BanditX/Y/Z` in config for custom maps

@@ -4336,25 +4336,6 @@ namespace RustDuckBot
             PrintToChat(player, "Use /db ask for specific BP info.");
         }
 
-        private void ShowKits(BasePlayer player, PlayerSession session)
-        {
-            PrintToChat(player, "<color=#FFD700>═══ AVAILABLE KITS ═══</color>");
-            PrintToChat(player, "• starter - Basic resources");
-            PrintToChat(player, "• pvp - Combat gear");
-            PrintToChat(player, "• building - Construction mats");
-            PrintToChat(player, "• mini - Mini toolkit");
-            PrintToChat(player, "Use /kit <name> to redeem");
-        }
-
-        private void RedeemKit(BasePlayer player, PlayerSession session, string kitName)
-        {
-            if (string.IsNullOrWhiteSpace(kitName)) { PrintToChat(player, "Usage: /db kit <kit_name> | /db kits for list"); return; }
-            var kits = new[] { "starter", "pvp", "building", "mini" };
-            if (Array.IndexOf(kits, kitName.ToLower()) < 0) { PrintToChat(player, $"Unknown kit: {kitName}. Available: {string.Join(", ", kits)}"); return; }
-            PrintToChat(player, $"<color=#00FF00>Redeeming kit:</color> {kitName}");
-            ConsoleSystemRun.ServerCommand($"kit give {kitName} {player.UserIDString}");
-        }
-
         // =====================================================================
         // GAMES & FUN
         // =====================================================================
@@ -4836,6 +4817,9 @@ namespace RustDuckBot
                 case "automation_rule":
                     HandleMCPAutomationRule(message);
                     break;
+                case "kit_give":
+                    HandleMCPKitGive(message);
+                    break;
                 case "security_scan":
                     LogActivity("security", "MCP scan requested", $"radius={GetMessageString(message, "radius", "100")}", GetMessageString(message, "requester_id"));
                     break;
@@ -4977,6 +4961,31 @@ namespace RustDuckBot
                 case "delete": _automationRules.Remove(rule); break;
                 case "run": RunAutomation(rule, null); break;
             }
+        }
+
+        private void HandleMCPKitGive(Dictionary<string, object> message)
+        {
+            var targetName = GetMessageString(message, "player_id");
+            var kitName = GetMessageString(message, "kit_name").ToLowerInvariant();
+            var actor = GetMessageString(message, "requester_id", "MCP");
+            if (string.IsNullOrWhiteSpace(targetName) || string.IsNullOrWhiteSpace(kitName)) return;
+
+            var target = FindPlayer(targetName);
+            if (target == null)
+            {
+                LogActivity("kits", "MCP kit grant failed", $"target not found: {targetName}", null, actor);
+                return;
+            }
+
+            if (!_kitDefinitions.TryGetValue(kitName, out var kit))
+            {
+                LogActivity("kits", "MCP kit grant failed", $"unknown kit: {kitName}", target.UserIDString, actor);
+                return;
+            }
+
+            ConsoleSystemRun.ServerCommand("kit give " + kit.RustKitName + " " + target.UserIDString);
+            LogActivity("kits", "MCP kit grant", actor + " granted kit '" + kit.Name + "' to " + target.displayName, target.UserIDString, target.displayName);
+            PrintToChat(target, "<color=#00FF88>DuckBot granted kit:</color> " + kit.DisplayName);
         }
 
         private string GetMessageString(Dictionary<string, object> message, string key, string fallback = "")

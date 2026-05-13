@@ -148,6 +148,16 @@ interface MarketListing {
   listedAt?: string;
 }
 
+interface KitDefinition {
+  name: string;
+  displayName: string;
+  category: string;
+  description: string;
+  permission: string;
+  cooldownMinutes: number;
+  maxUsesPerDay: number;
+}
+
 export interface DuckBotState {
   cameras: Map<string, CameraState>;
   players: Map<string, PlayerState>;
@@ -170,6 +180,15 @@ const ROLE_RANK: Record<Role, number> = {
   mod: 2,
   admin: 3,
 };
+
+const DEFAULT_KITS: KitDefinition[] = [
+  { name: 'starter', displayName: 'Starter Pack', category: 'combat', description: 'Basic resources to get started.', permission: 'rustduckbot.use', cooldownMinutes: 60, maxUsesPerDay: 3 },
+  { name: 'pvp', displayName: 'PvP Loadout', category: 'combat', description: 'Combat gear, ammo, and armor.', permission: 'rustduckbot.vip', cooldownMinutes: 120, maxUsesPerDay: 2 },
+  { name: 'building', displayName: 'Builder Bundle', category: 'building', description: 'Building resources and tools.', permission: 'rustduckbot.vip', cooldownMinutes: 90, maxUsesPerDay: 3 },
+  { name: 'mini', displayName: 'Mini Starter', category: 'utility', description: 'Server-defined mini kit.', permission: 'rustduckbot.vip', cooldownMinutes: 240, maxUsesPerDay: 1 },
+  { name: 'scrap', displayName: 'Scrap Heap', category: 'resources', description: 'Server-defined scrap kit.', permission: 'rustduckbot.use', cooldownMinutes: 30, maxUsesPerDay: 4 },
+  { name: 'admin', displayName: 'Admin Kit', category: 'admin', description: 'Admin-only server kit.', permission: 'rustduckbot.admin', cooldownMinutes: 60, maxUsesPerDay: 2 },
+];
 
 export const DEFAULT_CONFIG: ServerConfig = {
   stdioEnabled: process.env['MCP_STDIO'] !== '0',
@@ -535,6 +554,29 @@ export const ALL_TOOLS = [
     },
   },
   {
+    name: 'rust_list_kits',
+    description: 'List DuckBot-aware server kits, permissions, cooldowns, and daily limits.',
+    inputSchema: {
+      type: 'object',
+      properties: { category: schema.string('Optional kit category filter.') },
+    },
+  },
+  {
+    name: 'rust_give_kit',
+    description: 'Grant a configured server kit to a player through the Rust plugin. Requires admin and optional admin_token.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        player_id: schema.string('Target Steam ID or display name.'),
+        kit_name: schema.string('Configured kit name, such as starter, pvp, building, mini, scrap, or admin.'),
+        requester_id: schema.string('Admin Steam ID.'),
+        requester_role: schema.role,
+        admin_token: schema.string('Optional server admin token when configured.'),
+      },
+      required: ['player_id', 'kit_name'],
+    },
+  },
+  {
     name: 'rust_admin_command',
     description: 'Execute a whitelisted Rust server console/RCON command through the plugin. Requires admin and optional admin_token.',
     inputSchema: {
@@ -655,10 +697,10 @@ export async function handleToolCall(
         role,
         bridgeConnected: state.rustClients.size > 0,
         capabilities: {
-          user: ['chat', 'view_cameras', 'server_status', 'market'],
+          user: ['chat', 'view_cameras', 'server_status', 'market', 'kit_list'],
           vip: ['ptz_camera_control', 'security_scan', 'alerts', 'markers', 'base_status'],
           mod: ['activity_review', 'player_lookup', 'kick'],
-          admin: ['admin_commands', 'ban', 'lockdown', 'automation'],
+          admin: ['admin_commands', 'ban', 'lockdown', 'automation', 'kit_grants'],
         },
         activeAlerts: Array.from(state.alerts.values()).filter((alert) => !alert.acknowledged).length,
         cameras: state.cameras.size,
@@ -864,6 +906,25 @@ export async function handleToolCall(
         .filter((listing) => includeUnavailable || listing.available)
         .filter((listing) => !query || listing.itemName.toLowerCase().includes(query));
       return jsonResult({ listings, count: listings.length });
+    }
+
+    case 'rust_list_kits': {
+      const category = requiredString(args, 'category')?.toLowerCase();
+      const kits = DEFAULT_KITS.filter((kit) => !category || kit.category.toLowerCase() === category);
+      return jsonResult({ kits, count: kits.length });
+    }
+
+    case 'rust_give_kit': {
+      const denied = requireRole(state, args, 'admin') ?? requireAdminToken(config, args);
+      if (denied) return denied;
+      const playerId = requiredString(args, 'player_id');
+      const kitName = requiredString(args, 'kit_name')?.toLowerCase();
+      if (!playerId || !kitName) return textResult('player_id and kit_name are required.', true);
+      const kit = DEFAULT_KITS.find((item) => item.name === kitName);
+      if (!kit) return textResult(`Unknown kit: ${kitName}`, true);
+      const sent = sendToRust(state, { type: 'kit_give', player_id: playerId, kit_name: kit.name, requester_id: optionalString(args, 'requester_id') });
+      recordActivity(state, 'kits', 'grant', `${optionalString(args, 'requester_id', 'mcp-admin')} granted ${kit.name} to ${playerId}`, optionalString(args, 'requester_id'), undefined, config.maxHistory);
+      return jsonResult({ status: sent ? 'sent_to_rust' : 'queued_no_rust_client', player_id: playerId, kit });
     }
 
     case 'rust_admin_command':
