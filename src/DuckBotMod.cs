@@ -12,7 +12,7 @@ using UnityEngine;
 
 namespace RustDuckBot
 {
-    [Info("RustDuckBot", "1.2.0", "Duckets")]
+    [Info("RustDuckBot", "1.3.0", "Duckets")]
     [Description("AI-powered computer station with DuckBot. CCTV, security, base management, trading, automation, intel, and more.")]
     public class RustDuckBot : RustPlugin
     {
@@ -101,6 +101,301 @@ namespace RustDuckBot
         // Activity
         private List<ActivityEntry> _activityLog = new List<ActivityEntry>();
         private Dictionary<string, int> _commandStats = new Dictionary<string, int>();
+
+        // Monument world positions for naming cameras by proximity
+        private Dictionary<string, Vector3> _monumentLocations = new Dictionary<string, Vector3>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "oilrig",        new Vector3(26.6f,   4.6f, -123.7f) },
+            { "largeoilrig",   new Vector3(-9.3f,   4.6f, -157.9f) },
+            { "airfield",      new Vector3(-662.5f, 11.5f, -111.5f) },
+            { "militarytunnel",new Vector3(-410.2f,  7.2f,  227.3f) },
+            { "dome",          new Vector3(-418.8f, 36.7f, -172.8f) },
+            { "trainyard",     new Vector3(-258.4f,  5.0f,   -6.2f) },
+            { "powerplant",   new Vector3(-529.5f, 11.5f, -232.6f) },
+            { "satellite",    new Vector3(-1179.9f,31.5f, -971.8f) },
+            { "launchsite",   new Vector3(-1061.1f,33.4f,  322.4f) },
+            { "water treatment", new Vector3(44.9f,  2.0f,   13.4f) },
+            { "excavation",   new Vector3(125.8f,   0.5f,  140.4f) },
+            { "junkyard",     new Vector3(-161.3f,  6.3f,   14.8f) },
+            { "supermarket",  new Vector3(-219.4f,  4.0f,  -58.2f) },
+            { "gasstation",   new Vector3(-268.3f,  3.5f, -111.6f) },
+            { "outpost",      new Vector3(-94.5f,   3.0f,  -55.4f) },
+            { "bandit",       new Vector3(-222.6f,  2.0f,    6.7f) },
+            { "lighthouse",   new Vector3(9.6f,    15.6f, -160.4f) },
+        };
+
+        // Computer Station / CCTV watching
+        private Dictionary<ulong, ComputerStationSession> _computerSessions = new Dictionary<ulong, ComputerStationSession>();
+        private HashSet<string> _monumentCameraCodes = new HashSet<string>();
+        private HashSet<string> _playerOwnedCameraIds = new HashSet<string>();
+
+        private class ComputerStationSession
+        {
+            public ulong PlayerId;
+            public BaseEntity Station;
+            public string ActiveCameraId;
+            public string PreviousCameraId;
+            public string ActiveCameraName;
+            public bool IsWatchingCCTV;
+            public DateTime SessionStart;
+            public int CamerasViewed;
+            public List<string> AvailableCameraCodes = new List<string>();
+            public bool TerminalOpen;
+        }
+
+        // CUI Terminal UI
+        private class TerminalUI
+        {
+            public static string OVERLAY_NAME = "duckbot_terminal";
+            public static string PANEL_ANCHOR = "0.65 0.5";
+            public static string PANEL_OFFSET = "350 0 350 0";
+
+            public static string Color(string hex) => hex + "FF";
+
+            public static string BuildTerminal(string playerName, string role, int unreadAlerts, string currentCam, int cmdCount)
+            {
+                var container = new CuiElementContainer();
+
+                // Main panel
+                container.Add(new CuiElement
+                {
+                    Name = OVERLAY_NAME,
+                    Parent = "Overlay",
+                    Components = {
+                        new CuiRectTransformComponent { AnchorMin = PANEL_ANCHOR, AnchorMax = PANEL_ANCHOR, OffsetMin = "-350 0", OffsetMax = "0 0" },
+                        new CuiImageComponent { Color = "0.05 0.05 0.08 0.97", Material = "assets/content/ui/uibackgroundblur.mat" }
+                    }
+                });
+
+                // Header bar
+                container.Add(new CuiElement
+                {
+                    Name = OVERLAY_NAME + "_header",
+                    Parent = OVERLAY_NAME,
+                    Components = {
+                        new CuiRectTransformComponent { AnchorMin = "0 0.92", AnchorMax = "1 1" },
+                        new CuiImageComponent { Color = "0.12 0.09 0.04 1" }
+                    }
+                });
+
+                // Title
+                container.Add(new CuiElement
+                {
+                    Parent = OVERLAY_NAME + "_header",
+                    Components = {
+                        new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = "1 1" },
+                        new CuiTextComponent { Text = $"🖥  DUCKBOT TERMINAL", FontSize = 13, Align = TextAnchor.MiddleLeft, Color = "1 0.84 0 1" }
+                    }
+                });
+
+                // Alert badge (if alerts)
+                if (unreadAlerts > 0)
+                    container.Add(new CuiElement
+                    {
+                        Parent = OVERLAY_NAME + "_header",
+                        Components = {
+                            new CuiRectTransformComponent { AnchorMin = "0.75 0.1", AnchorMax = "0.88 0.9" },
+                            new CuiImageComponent { Color = "0.9 0.1 0.1 1" }
+                        }
+                    });
+
+                if (unreadAlerts > 0)
+                    container.Add(new CuiElement
+                    {
+                        Parent = OVERLAY_NAME + "_header",
+                        Components = {
+                            new CuiRectTransformComponent { AnchorMin = "0.75 0.1", AnchorMax = "0.88 0.9" },
+                            new CuiTextComponent { Text = $"⚠{unreadAlerts}", FontSize = 11, Align = TextAnchor.MiddleCenter, Color = "1 1 1 1" }
+                        }
+                    });
+
+                // Info bar
+                container.Add(new CuiElement
+                {
+                    Parent = OVERLAY_NAME,
+                    Components = {
+                        new CuiRectTransformComponent { AnchorMin = "0 0.86", AnchorMax = "1 0.92" },
+                        new CuiImageComponent { Color = "0.08 0.08 0.1 1" }
+                    }
+                });
+
+                var infoText = $"<color=#888>User:</color> {playerName} <color=#888>|</color> <color=#FFD700>{role.ToUpper()}</color> <color=#888>|</color> <color=#888>Cam:</color> {(string.IsNullOrEmpty(currentCam) ? "<color=#666>none</color>" : currentCam)} <color=#888>|</color> <color=#888>Alerts:</color> {unreadAlerts}";
+                container.Add(new CuiElement
+                {
+                    Parent = OVERLAY_NAME,
+                    Components = {
+                        new CuiRectTransformComponent { AnchorMin = "0 0.86", AnchorMax = "1 0.92" },
+                        new CuiTextComponent { Text = infoText, FontSize = 10, Align = TextAnchor.MiddleLeft, Color = "0.9 0.9 0.9 1" }
+                    }
+                });
+
+                // Terminal body (scrollable area)
+                container.Add(new CuiElement
+                {
+                    Parent = OVERLAY_NAME,
+                    Components = {
+                        new CuiRectTransformComponent { AnchorMin = "0 0.02", AnchorMax = "1 0.86" },
+                        new CuiImageComponent { Color = "0.03 0.03 0.05 1" }
+                    }
+                });
+
+                // Quick actions row
+                var actions = new[] { ("📷", "cameras"), ("🔒", "security"), ("🛒", "shop"), ("📡", "radar"), ("⚙", "automation"), ("❓", "help") };
+                float xStart = 0.02f;
+                float xStep = 0.16f;
+                for (int i = 0; i < actions.Length; i++)
+                {
+                    var (icon, cmd) = actions[i];
+                    float xMin = xStart + i * xStep;
+                    float xMax = xMin + 0.14f;
+                    container.Add(new CuiElement
+                    {
+                        Name = $"{OVERLAY_NAME}_btn_{i}",
+                        Parent = OVERLAY_NAME,
+                        Components = {
+                            new CuiRectTransformComponent { AnchorMin = $"{xMin} 0.94", AnchorMax = $"{xMax} 0.98" },
+                            new CuiImageComponent { Color = "0.15 0.12 0.08 1" }
+                        }
+                    });
+                    container.Add(new CuiElement
+                    {
+                        Parent = $"{OVERLAY_NAME}_btn_{i}",
+                        Components = {
+                            new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = "1 1" },
+                            new CuiTextComponent { Text = icon, FontSize = 14, Align = TextAnchor.MiddleCenter, Color = "1 0.84 0 1" }
+                        }
+                    });
+                }
+
+                // Welcome text
+                int line = 0;
+                float yBase = 0.72f;
+                float lineH = 0.045f;
+                var lines = new[] {
+                    "══════════════════════════════",
+                    "  🖥  DuckBot AI Terminal Ready",
+                    "══════════════════════════════",
+                    "",
+                    "  Type <color=#FFD700>/db ask &lt;question&gt;</color> to chat",
+                    "  Type <color=#FFD700>/db cameras</color> to view CCTV",
+                    "  Type <color=#FFD700>/db security</color> for alerts",
+                    "  Type <color=#FFD700>/db help</color> for all commands",
+                    "",
+                    "  Connected: <color=#00FF00>MCP ✓</color>",
+                    "",
+                    "  <color=#888>Camera codes (monuments):</color>",
+                    "  <color=#888>oilrig / largeoilrig / airfield</color>",
+                    "  <color=#888>dome / powerplant / trainyard</color>",
+                    "  <color=#888>outpost / bandit / satellite</color>",
+                    "",
+                    "  <color=#888>Enter camera code in Rust's</color>",
+                    "  <color=#888>CCTV panel to view monuments!</color>",
+                };
+
+                foreach (var text in lines)
+                {
+                    container.Add(new CuiElement
+                    {
+                        Parent = OVERLAY_NAME,
+                        Components = {
+                            new CuiRectTransformComponent { AnchorMin = $"0.02 {yBase - line * lineH}", AnchorMax = $"0.98 {yBase - (line - 1) * lineH}" },
+                            new CuiTextComponent { Text = text, FontSize = 10, Align = TextAnchor.UpperLeft, Color = "0.8 0.8 0.8 1", Font = "RobotoCondensed-Bold" }
+                        }
+                    });
+                    line++;
+                }
+
+                // Footer
+                container.Add(new CuiElement
+                {
+                    Parent = OVERLAY_NAME,
+                    Components = {
+                        new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = "1 0.04" },
+                        new CuiImageComponent { Color = "0.1 0.07 0.03 1" }
+                    }
+                });
+                container.Add(new CuiElement
+                {
+                    Parent = OVERLAY_NAME,
+                    Components = {
+                        new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = "1 0.04" },
+                        new CuiTextComponent { Text = "RustDuckBot v1.3.0 | /db help | AI: DuckBot", FontSize = 9, Align = TextAnchor.MiddleCenter, Color = "0.5 0.4 0.2 1" }
+                    }
+                });
+
+                return container;
+            }
+
+            public static string BuildCameraList(List<CameraInfo> cameras, string currentCam)
+            {
+                var container = new CuiElementContainer();
+
+                container.Add(new CuiElement
+                {
+                    Name = OVERLAY_NAME,
+                    Parent = "Overlay",
+                    Components = {
+                        new CuiRectTransformComponent { AnchorMin = "0.01 0.01", AnchorMax = "0.3 0.99" },
+                        new CuiImageComponent { Color = "0.04 0.04 0.07 0.98", Material = "assets/content/ui/uibackgroundblur.mat" }
+                    }
+                });
+
+                container.Add(new CuiElement
+                {
+                    Parent = OVERLAY_NAME,
+                    Components = {
+                        new CuiRectTransformComponent { AnchorMin = "0 0.93", AnchorMax = "1 1" },
+                        new CuiImageComponent { Color = "0.1 0.08 0.03 1" }
+                    }
+                });
+                container.Add(new CuiElement
+                {
+                    Parent = OVERLAY_NAME,
+                    Components = {
+                        new CuiRectTransformComponent { AnchorMin = "0 0.93", AnchorMax = "1 1" },
+                        new CuiTextComponent { Text = "📷 CCTV CAMERAS", FontSize = 12, Align = TextAnchor.MiddleLeft, Color = "1 0.84 0 1" }
+                    }
+                });
+
+                int row = 0;
+                float yStart = 0.90f;
+                float rowH = 0.052f;
+                foreach (var cam in cameras.Take(16))
+                {
+                    var statusColor = cam.Online ? (cam.HasPower ? "0 0.8 0.1 1" : "0.8 0.6 0 1") : "0.8 0.1 0.1 1";
+                    var isActive = currentCam == cam.Id;
+
+                    container.Add(new CuiElement
+                    {
+                        Name = $"{OVERLAY_NAME}_cam_{row}",
+                        Parent = OVERLAY_NAME,
+                        Components = {
+                            new CuiRectTransformComponent { AnchorMin = $"0.01 {yStart - row * rowH - rowH}", AnchorMax = $"0.99 {yStart - row * rowH}" },
+                            new CuiImageComponent { Color = isActive ? "0.12 0.08 0.02 1" : "0.08 0.08 0.12 1" }
+                        }
+                    });
+                    container.Add(new CuiElement
+                    {
+                        Parent = $"{OVERLAY_NAME}_cam_{row}",
+                        Components = {
+                            new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = "0.15 1" },
+                            new CuiTextComponent { Text = cam.Online ? "🟢" : "🔴", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = statusColor }
+                        }
+                    });
+                    container.Add(new CuiElement
+                    {
+                        Parent = $"{OVERLAY_NAME}_cam_{row}",
+                        Components = {
+                            new CuiRectTransformComponent { AnchorMin = "0.15 0", AnchorMax = "1 1" },
+                            new CuiTextComponent { Text = $"[{cam.Id}] {cam.Name}", FontSize = 9, Align = TextAnchor.MiddleLeft, Color = isActive ? "1 0.84 0 1" : "0.7 0.7 0.7 1" }
+                        }
+                    });
+                    row++;
+                }
+
+                return container;
+            }
+        }
 
         // =====================================================================
         // PLAYER SESSION
@@ -423,12 +718,36 @@ namespace RustDuckBot
             Subscribe(nameof(OnDoorClosed));
             Subscribe(nameof(OnExplosion));
             Subscribe(nameof(OnChat));
+            // CCTV / Computer Station hooks
+            Subscribe(nameof(OnCCTVCameraUsed));
+            Subscribe(nameof(OnComputerStationUse));
+            Subscribe(nameof(OnPlayerInput));
+            Subscribe(nameof(CanClientMove));
 
-            // Initialize default automation rules
-            InitializeDefaultAutomation();
+            // Initialize monument camera codes
+            InitializeMonumentCodes();
 
-            PrintAsh("<color=#FFD700>RustDuckBot v1.2.0</color> loaded.");
+            PrintAsh("<color=#FFD700>RustDuckBot v1.3.0</color> loaded. Computer Station integration: <color=#00FF00>ENABLED</color>");
             PrintAsh($"MCP: ws://{_config.MCPServerHost}:{_config.MCPServerPort} | Agent: {_config.AgentProvider}");
+        }
+
+        private void InitializeMonumentCodes()
+        {
+            _monumentCameraCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                // Large monuments
+                "oilrig", "largeoilrig", "airfield", "militarytunnel", "dome",
+                "trainyard", "powerplant", "satellite", "launchsite",
+                "water treatment", "watertreatment", "excavation", "junkyard",
+                "supermarket", "gasstation", "outpost", "bandit", "banditcamp",
+                "arctic", "desert", "mining", "lighthouse", "dome_small",
+                " supermarket", "large_barn", "swamp", "underwater_lab",
+                "desert_arrivals", "arctic_arrivals",
+                // Short codes
+                "oil", "rig", "largeoil", "military", "air", "dome", "dome_small",
+                "power", "sat", "launch", "water", "exc", "yard", "tunnel",
+                "arctic_base", "desert_base", "bandit_camp", "outpost_north", "outpost_south",
+            };
         }
 
         private void InitializeDefaultAutomation()
@@ -588,6 +907,233 @@ namespace RustDuckBot
             _radarTimer?.Dispose();
             _mcpClient?.Disconnect();
             SaveData();
+        }
+
+        // =====================================================================
+        // COMPUTER STATION / CCTV HOOKS
+        // Detect when a player sits at a computer station to use CCTV cameras.
+        // This is the core integration point for in-game terminal interaction.
+        // =====================================================================
+
+        // Fired when a player presses USE on a ComputerStation entity.
+        // Return non-null to block the interaction.
+        private object OnComputerStationUse(BasePlayer player, ComputerStation station)
+        {
+            if (player == null || station == null) return null;
+
+            var session = GetOrCreateSession(player);
+            session.TerminalOpen = true;
+            session.Station = station;
+            session.SessionStart = DateTime.UtcNow;
+            _computerSessions[player.userID] = session;
+
+            // Notify AI agent
+            _ = _agentBridge.SendToAgentAsync(new
+            {
+                type = "computer_station_open",
+                playerId = player.UserIDString,
+                playerName = player.displayName,
+                stationId = station.net.ID.Value.ToString(),
+                stationName = station.ShortPrefabName,
+                timestamp = DateTime.UtcNow.ToString("O")
+            });
+
+            // Log the session
+            LogActivity("security", "Terminal opened",
+                $"Player {player.displayName} opened computer station",
+                player.UserIDString, player.displayName);
+
+            // Show the CUI terminal overlay
+            ShowTerminalUI(player);
+
+            // Announce in chat that DuckBot is ready at the terminal
+            timer.Once(0.5f, () =>
+            {
+                if (player.IsConnected())
+                {
+                    player.ChatMessage(
+                        "<color=#FFD700>🖥  DuckBot Terminal Active</color>\n" +
+                        "<color=#888>Type <color=#FFD700>/db ask &lt;message&gt;</color> to control everything.\n" +
+                        "Type <color=#FFD700>/db help</color> for all commands.\n" +
+                        "Press <color=#888>E</color> or <color=#888>F</color> to cycle cameras in Rust's CCTV panel.</color>");
+                }
+            });
+
+            PrintAsh($"[CCTV] {player.displayName} opened computer station terminal");
+            return null; // Allow the interaction
+        }
+
+        // Fired every frame while a player is watching a CCTV camera.
+        // station = the ComputerStation they used to enter, camera = the CCTV entity.
+        private void OnCCTVCameraUsed(BasePlayer player, ComputerStation station, CCTVCamera camera)
+        {
+            if (player == null) return;
+
+            var session = GetOrCreateSession(player);
+            session.IsWatchingCCTV = true;
+            session.Station = station;
+            _computerSessions[player.userID] = session;
+
+            string cameraId = camera?.net?.ID.Value.ToString() ?? "unknown";
+            string cameraName = GetCameraDisplayName(camera, cameraId);
+
+            if (session.ActiveCameraId != cameraId)
+            {
+                session.PreviousCameraId = session.ActiveCameraId;
+                session.ActiveCameraId = cameraId;
+                session.ActiveCameraName = cameraName;
+                session.CamerasViewed++;
+
+                PrintAsh($"[CCTV] {player.displayName} → viewing camera {cameraName} (ID: {cameraId})");
+
+                // Notify AI agent of camera switch
+                _ = _agentBridge.SendToAgentAsync(new
+                {
+                    type = "camera_viewed",
+                    playerId = player.UserIDString,
+                    playerName = player.displayName,
+                    cameraId = cameraId,
+                    cameraName = cameraName,
+                    cameraCount = session.CamerasViewed,
+                    timestamp = DateTime.UtcNow.ToString("O")
+                });
+
+                // Auto-detect monument camera codes
+                DetectMonumentCamera(player, cameraId);
+
+                // Log access
+                AddAccessLog(player.UserIDString, player.displayName,
+                    cameraId, "view", true, $"Watching {cameraName}");
+            }
+        }
+
+        // Capture monument camera codes the player types into Rust's CCTV panel.
+        // We detect new codes by watching the player's input while at a station.
+        private void OnPlayerInput(BasePlayer player, InputState input)
+        {
+            if (player == null || input == null) return;
+
+            // Check if player is at a computer station
+            if (!_computerSessions.TryGetValue(player.userID, out var session) || !session.TerminalOpen)
+                return;
+
+            // Detect camera code input via chat-like button presses
+            // JUMP = cycle next camera, DUCK = cycle previous
+            if (input.WasJustPressed(BUTTON.JUMP))
+            {
+                PrintAsh($"[CCTV] {player.displayName} cycled to NEXT camera");
+                _ = _agentBridge.SendToAgentAsync(new
+                {
+                    type = "cctv_cycle",
+                    playerId = player.UserIDString,
+                    direction = "next"
+                });
+            }
+            else if (input.WasJustPressed(BUTTON.DUCK))
+            {
+                PrintAsh($"[CCTV] {player.displayName} cycled to PREVIOUS camera");
+                _ = _agentBridge.SendToAgentAsync(new
+                {
+                    type = "cctv_cycle",
+                    playerId = player.UserIDString,
+                    direction = "previous"
+                });
+            }
+        }
+
+        // Block movement while at computer station (keeps player "seated")
+        private object CanClientMove(BasePlayer player, Proto.EntitySnapshot snapshot)
+        {
+            if (player == null) return null;
+            if (!_computerSessions.TryGetValue(player.userID, out var session))
+                return null;
+
+            // If player has the terminal open, prevent normal movement
+            //，让他们保持在computer station的位置
+            if (session.TerminalOpen && session.IsWatchingCCTV)
+            {
+                // Allow releasing from station (PRESS USE again to exit)
+                return null;
+            }
+            return null;
+        }
+
+        // Detect monument camera codes from the player's perspective while at CCTV
+        private void DetectMonumentCamera(BasePlayer player, string cameraId)
+        {
+            if (player == null || string.IsNullOrEmpty(cameraId)) return;
+
+            // Check if any known monument code was entered
+            foreach (var code in _monumentCameraCodes)
+            {
+                if (cameraId.Contains(code, StringComparison.OrdinalIgnoreCase))
+                {
+                    PrintAsh($"[CCTV] Monument camera detected: <color=#00FF00>{code}</color> by {player.displayName}");
+                    _ = _agentBridge.SendToAgentAsync(new
+                    {
+                        type = "monument_camera",
+                        playerId = player.UserIDString,
+                        monumentCode = code,
+                        cameraId = cameraId
+                    });
+                    return;
+                }
+            }
+        }
+
+        // Get human-readable camera name
+        private string GetCameraDisplayName(CCTVCamera camera, string cameraId)
+        {
+            if (camera == null) return $"Camera_{cameraId}";
+
+            // Try to get position-based name
+            var pos = camera.transform?.position ?? default(Vector3);
+
+            // Check if it's near any known monument
+            foreach (var kvp in _monumentLocations)
+            {
+                if (Vector3.Distance(pos, kvp.Value) < 200f)
+                    return $"{kvp.Key} Camera";
+            }
+
+            return $"Camera_{cameraId.Substring(0, Math.Min(6, cameraId.Length))}";
+        }
+
+        // Show CUI terminal overlay when player opens computer station
+        private void ShowTerminalUI(BasePlayer player)
+        {
+            if (player == null || !player.IsConnected()) return;
+
+            int unreadAlerts = _activeAlerts.Count(a => !a.Acknowledged);
+            string role = GetPlayerRole(player);
+
+            var container = TerminalUI.BuildTerminal(
+                player.displayName, role, unreadAlerts,
+                _computerSessions.TryGetValue(player.userID, out var s) ? s.ActiveCameraName : "none",
+                _commandStats.Count
+            );
+
+            CuiHelper.AddUi(player, container);
+        }
+
+        // Hide terminal UI when player closes computer station
+        private void HideTerminalUI(BasePlayer player)
+        {
+            if (player == null) return;
+            CuiHelper.DestroyUi(player, TerminalUI.OVERLAY_NAME);
+        }
+
+        // Check if a player is currently at a computer station
+        private bool IsAtComputerStation(ulong playerId)
+        {
+            return _computerSessions.TryGetValue(playerId, out var session) && session.TerminalOpen;
+        }
+
+        // Get current camera session for a player
+        private ComputerStationSession GetCameraSession(ulong playerId)
+        {
+            _computerSessions.TryGetValue(playerId, out var session);
+            return session;
         }
 
         // =====================================================================
@@ -3059,11 +3605,17 @@ namespace RustDuckBot
         private CancellationTokenSource _cts;
         private Task _receiveTask;
         private bool _connected;
+        private readonly Queue<object> _agentEventQueue = new Queue<object>();
+        private readonly object _queueLock = new object();
+
+        // Static singleton so AgentBridge can enqueue events without a reference
+        public static MCPClient DefaultInstance;
 
         public MCPClient(string host, int port, RustDuckBot plugin)
         {
             _host = host; _port = port; _plugin = plugin;
             _ws = new ClientWebSocket();
+            DefaultInstance = this;
         }
 
         public bool IsConnected() => _connected && _ws?.State == WebSocketState.Open;
@@ -3077,6 +3629,7 @@ namespace RustDuckBot
                 _ws = new ClientWebSocket();
                 await _ws.ConnectAsync(uri, _cts.Token);
                 _connected = true;
+                DefaultInstance = this;
                 _plugin.PrintAsh($"MCP connected to {uri}");
                 await SendAsync(new { type = "rust_hello", version = "1.2.0", plugin = "RustDuckBot" });
                 _receiveTask = ReceiveLoop();
@@ -3116,13 +3669,50 @@ namespace RustDuckBot
             await _ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, _cts.Token);
         }
 
+        // Called by AgentBridge to enqueue an async event for the AI agent.
+        // Drain logic is handled in the main receive loop.
+        public void EnqueueAgentEvent(object gameEvent)
+        {
+            lock (_queueLock)
+            {
+                // Keep queue bounded to avoid memory issues
+                if (_agentEventQueue.Count < 50)
+                    _agentEventQueue.Enqueue(gameEvent);
+            }
+        }
+
+        // Drain queued events to the AI agent when the connection is healthy.
+        private void DrainAgentEventQueue()
+        {
+            if (!IsConnected()) return;
+            lock (_queueLock)
+            {
+                while (_agentEventQueue.Count > 0)
+                {
+                    var evt = _agentEventQueue.Dequeue();
+                    try
+                    {
+                        var json = SimpleJson.Serialize(new { type = "game_event", data = evt });
+                        var bytes = Encoding.UTF8.GetBytes(json);
+                        _ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, _cts.Token).Wait(100);
+                    }
+                    catch { }
+                }
+            }
+        }
+
         private async Task ReceiveLoop()
         {
             var buffer = new byte[16384];
+            var drainCounter = 0;
             while (_ws?.State == WebSocketState.Open && !_cts.IsCancellationRequested)
             {
                 try
                 {
+                    // Drain queued game events to the AI agent periodically
+                    if (++drainCounter % 20 == 0)
+                        DrainAgentEventQueue();
+
                     var result = await _ws.ReceiveAsync(new ArraySegment<byte>(buffer), _cts.Token);
                     if (result.MessageType == WebSocketMessageType.Close) break;
                     var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
@@ -3237,6 +3827,26 @@ namespace RustDuckBot
         {
             _provider = provider;
             _config = config;
+        }
+
+        // Send an async event to the AI agent (via MCP) without waiting for response.
+        // Used for game events like CCTV usage, alerts, raids, etc.
+        public async Task SendToAgentAsync(object gameEvent)
+        {
+            try
+            {
+                // Fire-and-forget: serialize and hand off to MCP client for delivery
+                // The MCP client queues these and delivers them to the AI agent.
+                var json = SimpleJson.Serialize(gameEvent);
+                if (MCPClient.DefaultInstance != null)
+                {
+                    MCPClient.DefaultInstance.EnqueueAgentEvent(gameEvent);
+                }
+            }
+            catch
+            {
+                // Silently ignore delivery failures — game events shouldn't crash the server
+            }
         }
 
         public string GetResponse(string playerName, string role, string message, List<object> history)
