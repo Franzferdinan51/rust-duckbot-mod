@@ -17,6 +17,8 @@ namespace Oxide.Plugins
     [Description("AI-powered computer station with DuckBot. CCTV, security, base management, trading, automation, intel, and more.")]
     public class RustDuckBot : RustPlugin
     {
+        [PluginReference]
+        private Plugin Kits;
         // =====================================================================
         // CONFIGURATION
         // =====================================================================
@@ -1054,8 +1056,11 @@ namespace Oxide.Plugins
                 if (_config == null) _config = new ConfigData();
 
                 _serverInitialized = true;
-                if (_mcpClient != null) _ = _mcpClient.ConnectAsync();
-                else PrintWarning("[RustDuckBot] MCP client was not initialized; DuckBot chat commands remain available without MCP until reload.");
+                if (_config.AgentProvider == "duckbot")
+                {
+                    if (_mcpClient != null) _ = _mcpClient.ConnectAsync();
+                    else PrintWarning("[RustDuckBot] MCP client was not initialized; DuckBot chat commands remain available without MCP until reload.");
+                }
 
                 if (_config.EnableWebSocketRCON && !string.IsNullOrEmpty(_config.RCONPassword))
                 {
@@ -2542,21 +2547,13 @@ namespace Oxide.Plugins
         private void GetRecommendations(BasePlayer player, PlayerSession session)
         {
             var pos = player.transform.position;
+            var nearbyBases = _monitoredBases.Where(b => Vector3.Distance(b.Position, pos) < 200f).Take(3).Select(b => b.Name).ToList();
+            var recentAlerts = _activeAlerts.OrderByDescending(a => a.Time).Take(3).Select(a => a.Title).ToList();
             PrintToChat(player, "<color=#FFD700>═══ AI RECOMMENDATIONS ═══</color>");
             PrintToChat(player, $"Position: {GetLocation(pos)}");
-            PrintToChat(player, "1. Check nearby monuments for loot");
-            PrintToChat(player, "2. Monitor decay on your base");
-            PrintToChat(player, "3. Keep tracking raider activity");
-            PrintToChat(player, "4. Use /db analyze for detailed base analysis");
-            if (_agentBridge != null)
-            {
-                var response = _agentBridge.GetResponse(player.displayName, session.Role, "recommendations_for_player", null);
-                PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {response}");
-            }
-            else
-            {
-                PrintToChat(player, "<color=#888>AI recommendations are offline until DuckBot finishes initialization.</color>");
-            }
+            var prompt = $"Give Rust survival recommendations for player {player.displayName} (role {session.Role}). Position: {GetLocation(pos)}. Nearest monument: {GetNearestMonument(pos)}. Nearby bases: {string.Join(", ", nearbyBases)}. Recent alerts: {string.Join(", ", recentAlerts)}. Keep it concise and actionable.";
+            var response = GetAssistantResponse(player, session, prompt, false);
+            PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {response}");
         }
 
         private void AnalyzeBase(BasePlayer player, PlayerSession session)
@@ -3797,7 +3794,13 @@ namespace Oxide.Plugins
                 return;
             }
 
-            Server.Command("kit give " + kit.RustKitName + " " + player.UserIDString);
+            if (!TryGrantKit(player, kit, out var kitError))
+            {
+                PrintToChat(player, "<color=#FF4444>Kit unavailable:</color> " + kitError);
+                LogActivity("kits", "Kit grant failed", kitError + " (" + kit.Name + ")", player.UserIDString, player.displayName);
+                return;
+            }
+
             RecordKitUse(player.userID, kit.Name);
             PrintToChat(player, "<color=#00FF88>Kit redeemed:</color> " + kit.DisplayName);
             PrintToChat(player, "<color=#888>Next use in " + kit.CooldownMinutes + " minutes.</color>");
@@ -3913,17 +3916,15 @@ namespace Oxide.Plugins
         private void ShowWeather(BasePlayer player, PlayerSession session)
         {
             PrintToChat(player, "<color=#FFD700>═══ WEATHER ═══</color>");
-            PrintToChat(player, "Clear skies");
-            PrintToChat(player, "Wind: 5 km/h NW");
-            PrintToChat(player, $"Next event: Check server events");
+            var response = GetAssistantResponse(player, session, "Give a short Rust-oriented weather and visibility advisory for the current server conditions. If no live weather data is available, say that clearly and give practical advice.", false);
+            PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {response}");
         }
 
         private void ShowWipeInfo(BasePlayer player, PlayerSession session)
         {
             PrintToChat(player, "<color=#FFD700>═══ WIPE INFO ═══</color>");
-            PrintToChat(player, "Last wipe: Check server");
-            PrintToChat(player, "Next wipe: Check server Discord");
-            PrintToChat(player, "Wipe type: Monthly (BP + Map)");
+            var response = GetAssistantResponse(player, session, "Explain what players should check for wipe timing and wipe prep on this Rust server. Keep it concise.", false);
+            PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {response}");
         }
 
         private void ShowMonuments(BasePlayer player, PlayerSession session)
@@ -3934,27 +3935,16 @@ namespace Oxide.Plugins
             PrintToChat(player, "<color=#FFD700>═══ MONUMENTS ═══</color>");
             PrintToChat(player, $"Nearest: {nearest}");
             PrintToChat(player, $"Position: {GetGridCoord(pos)}");
-            PrintToChat(player, "Key monuments:");
-            PrintToChat(player, "• Oil Rig (Large/Small) - Best loot");
-            PrintToChat(player, "• Airfield - Military");
-            PrintToChat(player, "• Dome - Mid tier");
-            PrintToChat(player, "• Train Yard - Components");
-            PrintToChat(player, "• Power Plant - Electric");
-            PrintToChat(player, "• Outpost/Bandit - Trading");
-            PrintToChat(player, "Use /db grid for full map.");
+            var response = GetAssistantResponse(player, session, $"Give concise Rust monument advice for a player near {nearest} at {GetGridCoord(pos)}. Mention loot priorities and risks.", false);
+            PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {response}");
         }
 
         private void ShowLootInfo(BasePlayer player, PlayerSession session, string type)
         {
             PrintToChat(player, "<color=#FFD700>═══ LOOT LOCATIONS ═══</color>");
-            PrintToChat(player, "Dome: Elite crates, tech trash");
-            PrintToChat(player, "Airfield: Military crates, ammo");
-            PrintToChat(player, "Oil Rig: Elite crates, components");
-            PrintToChat(player, "Train Yard: Junk, scrap");
-            PrintToChat(player, "Power Plant: Electric comp, fuses");
-            PrintToChat(player, "Sewer: Recycler, raw scrap");
-            PrintToChat(player, "Mining: Raw ore nodes");
-            PrintToChat(player, "Arctic: Elite crates, meds");
+            var focus = string.IsNullOrWhiteSpace(type) ? "general loot routing" : type;
+            var response = GetAssistantResponse(player, session, $"Give concise Rust loot advice focused on {focus}. Mention best monuments, what loot to prioritize, and major risks.", false);
+            PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {response}");
         }
 
         private void ShowActiveEvents(BasePlayer player, PlayerSession session)
@@ -3962,31 +3952,32 @@ namespace Oxide.Plugins
             PrintToChat(player, "<color=#FFD700>═══ ACTIVE EVENTS ═══</color>");
             var events = _raidHistory.Count(r => r.Outcome == "in_progress");
             PrintToChat(player, $"Active raids: {events}");
-            PrintToChat(player, "Check server for CH47, Bradley, Cargo");
+            var response = GetAssistantResponse(player, session, $"Summarize what active Rust world events a player should check right now. Current tracked raids: {events}. Mention CH47, Bradley, cargo, patrol, and timing awareness.", false);
+            PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {response}");
         }
 
         private void ShowRecipes(BasePlayer player, PlayerSession session, string item)
         {
             PrintToChat(player, "<color=#FFD700>═══ RECIPES ═══</color>");
-            PrintToChat(player, "Workbench 1: Basic items");
-            PrintToChat(player, "Workbench 2: Medium items");
-            PrintToChat(player, "Workbench 3: Advanced items");
-            PrintToChat(player, "Use /db ask for specific recipes.");
+            var focus = string.IsNullOrWhiteSpace(item) ? "starter progression and useful early recipes" : item;
+            var response = GetAssistantResponse(player, session, $"Explain Rust crafting and recipe guidance for {focus}. Mention workbench tier if relevant and keep it concise.", false);
+            PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {response}");
         }
 
         private void ShowResearch(BasePlayer player, PlayerSession session, string item)
         {
             PrintToChat(player, "<color=#FFD700>═══ RESEARCH ═══</color>");
-            PrintToChat(player, "Place item + research table");
-            PrintToChat(player, "Scrap cost varies by item tier");
-            PrintToChat(player, "Use /db ask for specific research cost.");
+            var focus = string.IsNullOrWhiteSpace(item) ? "research priorities for a normal Rust player" : item;
+            var response = GetAssistantResponse(player, session, $"Give concise Rust research-table advice for {focus}. Mention likely scrap considerations and what to prioritize.", false);
+            PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {response}");
         }
 
         private void ShowBlueprintInfo(BasePlayer player, PlayerSession session, string bp)
         {
             PrintToChat(player, "<color=#FFD700>═══ BLUEPRINTS ═══</color>");
-            PrintToChat(player, $"Research progress: Check workbench");
-            PrintToChat(player, "Use /db ask for specific BP info.");
+            var focus = string.IsNullOrWhiteSpace(bp) ? "blueprint progression" : bp;
+            var response = GetAssistantResponse(player, session, $"Give concise Rust blueprint advice for {focus}. Mention when it is worth learning and what progression stage it fits.", false);
+            PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {response}");
         }
 
         // =====================================================================
@@ -4035,20 +4026,20 @@ namespace Oxide.Plugins
 
         private void ShowQuote(BasePlayer player, PlayerSession session)
         {
-            var quotes = new[] { "The best time to plant a tree was 20 years ago. The second best time is now.", "Rust never sleeps.", "Every raid is a lesson.", "The stone that the builder refuses will always be the head cornerstone.", "In Rust, we trust.", "Loot today, lose tomorrow.", "A base without TC is just a loot drop.", "The ocean is unforgiving.", "The best weapon is the one you don't have to aim.", "Trust no one, verify everything." };
-            PrintToChat(player, $"<color=#FFD700>💬 QUOTE:</color> \"{quotes[new System.Random().Next(quotes.Length)]}\"");
+            var response = GetAssistantResponse(player, session, "Give one short gritty quote for a Rust player. Keep it in-character and under 20 words.", false);
+            PrintToChat(player, $"<color=#FFD700>💬 QUOTE:</color> {response}");
         }
 
         private void TellJoke(BasePlayer player, PlayerSession session)
         {
-            var jokes = new[] { "Why did the raider cross the map? To get to the other base. 💀", "How many raiders does it take to breach a door? None, they just console command it. 😏", "What's a base without a TC? A loot pinata. 🎉", "Why don't raiders play poker? Because they always bring a console. 🖥️", "What's the best defense? A friend with admin permissions. 🤫" };
-            PrintToChat(player, $"<color=#FFD700>😂 JOKE:</color> {jokes[new System.Random().Next(jokes.Length)]}");
+            var response = GetAssistantResponse(player, session, "Tell one short Rust-themed joke. Keep it clean and concise.", false);
+            PrintToChat(player, $"<color=#FFD700>😂 JOKE:</color> {response}");
         }
 
         private void ShowFortune(BasePlayer player, PlayerSession session)
         {
-            var fortunes = new[] { "A big raid is coming your way.", "Someone is watching your base right now.", "Your next scrap run will be legendary.", "A stranger will offer you a good trade today.", "Your TC auth list needs a cleanup.", "A monument is calling your name.", "Today is a good day to farm.", "Beware of false friends.", "The best loot is yet to come.", "Your base will survive this wipe." };
-            PrintToChat(player, $"<color=#FFD700>🔮 FORTUNE:</color> {fortunes[new System.Random().Next(fortunes.Length)]}");
+            var response = GetAssistantResponse(player, session, "Give one short fortune for a Rust player. Keep it dramatic and under 20 words.", false);
+            PrintToChat(player, $"<color=#FFD700>🔮 FORTUNE:</color> {response}");
         }
 
         private void PlaySlots(BasePlayer player, PlayerSession session)
@@ -4136,7 +4127,33 @@ namespace Oxide.Plugins
         // MISC
         // =====================================================================
 
-        private void ShowVersion(BasePlayer player) { PrintToChat(player, "<color=#FFD700>RustDuckBot v1.4.5</color> by Duckets | AI: " + (_localAI?.ProviderName ?? _config.AgentProvider) + " MCP Bridge"); }
+        private string GetAssistantResponse(BasePlayer player, PlayerSession session, string message, bool includeHistory = true)
+        {
+            var history = includeHistory ? session?.ChatHistory : null;
+            if (_localAI != null && _localAI.IsLocalProvider)
+            {
+                var local = _localAI.GetResponse(player.displayName, session.Role, message, history);
+                if (!string.IsNullOrWhiteSpace(local)) return local;
+            }
+
+            var remote = _agentBridge?.GetResponse(player.displayName, session.Role, message, history);
+            return string.IsNullOrWhiteSpace(remote) ? "No AI response available." : remote;
+        }
+
+        private bool TryGrantKit(BasePlayer target, KitDefinition kit, out string error)
+        {
+            error = null;
+            if (Kits == null)
+            {
+                error = "Server Kits plugin is not loaded.";
+                return false;
+            }
+
+            Server.Command("kit give " + kit.RustKitName + " " + target.UserIDString);
+            return true;
+        }
+
+        private void ShowVersion(BasePlayer player) { PrintToChat(player, "<color=#FFD700>RustDuckBot v1.4.5</color> by Duckets | AI: " + (_localAI?.ProviderName ?? _config.AgentProvider)); }
         private void ShowCredits(BasePlayer player) { PrintToChat(player, "Created by <color=#FFD700>Duckets</color> | Powered by <color=#FFD700>DuckBot AI</color>"); }
         private void ShowChangelog(BasePlayer player) { PrintToChat(player, "v1.4.0: Massive feature expansion — 30 new commands across 7 categories"); }
         private void ShowDonateInfo(BasePlayer player) { PrintToChat(player, "Donations help keep the server running! Contact admin."); }
@@ -4680,7 +4697,12 @@ namespace Oxide.Plugins
                 return;
             }
 
-            Server.Command("kit give " + kit.RustKitName + " " + target.UserIDString);
+            if (!TryGrantKit(target, kit, out var kitError))
+            {
+                LogActivity("kits", "MCP kit grant failed", kitError + ": " + kitName, target.UserIDString, actor);
+                return;
+            }
+
             LogActivity("kits", "MCP kit grant", actor + " granted kit '" + kit.Name + "' to " + target.displayName, target.UserIDString, target.displayName);
             PrintToChat(target, "<color=#00FF88>DuckBot granted kit:</color> " + kit.DisplayName);
         }
