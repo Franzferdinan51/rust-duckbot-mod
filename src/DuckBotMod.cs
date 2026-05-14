@@ -1063,22 +1063,22 @@ namespace Oxide.Plugins
                 ScanVendingMachines();
 
                 // Heartbeat every 30s
-                _heartbeatTimer = new Timer(HeartbeatCallback, null, 30000, 30000);
+                _heartbeatTimer = new Timer(30f, 30f, HeartbeatCallback);
 
                 // Automation every 60s
-                _automationTimer = new Timer(AutomationCallback, null, 60000, 60000);
+                _automationTimer = new Timer(60f, 60f, AutomationCallback);
 
                 // Decay check every 5 min
-                _decayTimer = new Timer(DecayCheckCallback, null, 300000, 300000);
+                _decayTimer = new Timer(300f, 300f, DecayCheckCallback);
 
                 // Radar sweep every 10s
-                _radarTimer = new Timer(RadarCallback, null, 10000, 10000);
+                _radarTimer = new Timer(10f, 10f, RadarCallback);
 
                 // AFK check every 30s
-                _afkCheckTimer = new Timer(AFKCheckCallback, null, 30000, 30000);
+                _afkCheckTimer = new Timer(30f, 30f, AFKCheckCallback);
 
                 // Auto-save every 5 min
-                _autoSaveTimer = new Timer(AutoSaveCallback, null, 300000, 300000);
+                _autoSaveTimer = new Timer(300f, 300f, AutoSaveCallback);
 
                 // Load persisted data
                 LoadData();
@@ -1298,7 +1298,7 @@ namespace Oxide.Plugins
 
         // Fired every frame while a player is watching a CCTV camera.
         // station = the ComputerStation they used to enter, camera = the CCTV entity.
-        private void OnCCTVCameraUsed(BasePlayer player, ComputerStation station, CCTVRCamera camera)
+        private void OnCCTVCameraUsed(BasePlayer player, ComputerStation station, BaseEntity camera)
         {
             if (player == null) return;
 
@@ -1425,7 +1425,7 @@ namespace Oxide.Plugins
         }
 
         // Get human-readable camera name
-        private string GetCameraDisplayName(CCTVRCamera camera, string cameraId)
+        private string GetCameraDisplayName(BaseEntity camera, string cameraId)
         {
             if (camera == null) return $"Camera_{cameraId}";
 
