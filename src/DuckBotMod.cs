@@ -13,7 +13,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("RustDuckBot", "1.4.3", "Duckets")]
+    [Info("RustDuckBot", "1.4.4", "Duckets")]
     [Description("AI-powered computer station with DuckBot. CCTV, security, base management, trading, automation, intel, and more.")]
     public class RustDuckBot : RustPlugin
     {
@@ -477,7 +477,7 @@ namespace Oxide.Plugins
                     Parent = OVERLAY_NAME,
                     Components = {
                         new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = "1 0.04" },
-                        new CuiTextComponent { Text = "RustDuckBot v1.4.3 | /db help | AI: DuckBot", FontSize = 9, Align = TextAnchor.MiddleCenter, Color = "0.5 0.4 0.2 1" }
+                        new CuiTextComponent { Text = "RustDuckBot v1.4.4 | /db help | AI: DuckBot", FontSize = 9, Align = TextAnchor.MiddleCenter, Color = "0.5 0.4 0.2 1" }
                     }
                 });
 
@@ -981,7 +981,7 @@ namespace Oxide.Plugins
 
                 _initFailed = false;
                 _initError = null;
-                PrintAsh("<color=#FFD700>RustDuckBot v1.4.3</color> loaded. Computer Station: <color=#00FF00>ENABLED</color> | Chat Panel: <color=#00FF00>ENABLED</color>");
+                PrintAsh("<color=#FFD700>RustDuckBot v1.4.4</color> loaded. Computer Station: <color=#00FF00>ENABLED</color> | Chat Panel: <color=#00FF00>ENABLED</color>");
                 var aiMode = _config.AgentProvider == "duckbot" ? $"DuckBot MCP ({_config.AgentConfig})" : $"Local AI: {_config.AgentProvider}";
                 PrintAsh($"AI: <color=#FFD700>{aiMode}</color> | MCP: ws://{_config.MCPServerHost}:{_config.MCPServerPort}");
             }
@@ -1084,7 +1084,7 @@ namespace Oxide.Plugins
                 LoadData();
 
                 SendServerStatus();
-                LogActivity("system", "Server initialized", $"RustDuckBot v1.4.3 started. Cameras: {_cameras.Count}");
+                LogActivity("system", "Server initialized", $"RustDuckBot v1.4.4 started. Cameras: {_cameras.Count}");
             }
             catch (Exception ex)
             {
@@ -1141,7 +1141,10 @@ namespace Oxide.Plugins
         private object OnPlayerChat(BasePlayer player, string message)
         {
             if (player == null || string.IsNullOrWhiteSpace(message)) return null;
-            if (message.StartsWith("/", StringComparison.Ordinal)) return null;
+            if (message.StartsWith("/", StringComparison.Ordinal))
+            {
+                return TryHandleDuckBotSlashCommand(player, message) ? (object)false : null;
+            }
             if (_mutedPlayers.Contains(player.displayName) || _mutedPlayers.Contains(player.UserIDString))
             {
                 PrintToChat(player, "<color=#FF4444>You are muted.</color>");
@@ -1870,6 +1873,12 @@ namespace Oxide.Plugins
         // MAIN COMMAND HANDLER
         // =====================================================================
 
+        [ChatCommand("duckbot")]
+        private void CmdDuckBotAlias(BasePlayer player, string command, string[] args)
+        {
+            CmdDuckBot(player, command, args);
+        }
+
         [ChatCommand("db")]
         private void CmdDuckBot(BasePlayer player, string command, string[] args)
         {
@@ -2117,6 +2126,50 @@ namespace Oxide.Plugins
             }
         }
 
+        public object CmdDuckBotShim(BasePlayer player, string command, string[] args)
+        {
+            CmdDuckBot(player, command, args ?? Array.Empty<string>());
+            return true;
+        }
+
+        private object OnPlayerCommand(BasePlayer player, string command, string[] args)
+        {
+            if (player == null || !IsDuckBotCommand(command)) return null;
+            CmdDuckBot(player, command, args ?? Array.Empty<string>());
+            return true;
+        }
+
+        private bool TryHandleDuckBotSlashCommand(BasePlayer player, string message)
+        {
+            if (player == null || string.IsNullOrWhiteSpace(message)) return false;
+
+            var text = message.Trim();
+            if (!text.StartsWith("/", StringComparison.Ordinal)) return false;
+
+            text = text.Substring(1).Trim();
+            if (string.IsNullOrWhiteSpace(text)) return false;
+
+            var parts = SplitArgs(text, 2);
+            if (parts.Length == 0 || !IsDuckBotCommand(parts[0])) return false;
+
+            var args = parts.Length > 1 ? SplitCommandArguments(parts[1]) : Array.Empty<string>();
+            CmdDuckBot(player, parts[0], args);
+            return true;
+        }
+
+        private bool IsDuckBotCommand(string command)
+        {
+            if (string.IsNullOrWhiteSpace(command)) return false;
+            var normalized = command.Trim().TrimStart('/').ToLowerInvariant();
+            return normalized == "db" || normalized == "duckbot";
+        }
+
+        private string[] SplitCommandArguments(string args)
+        {
+            if (string.IsNullOrWhiteSpace(args)) return Array.Empty<string>();
+            return args.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        }
+
         // =====================================================================
         // HELP & INFO
         // =====================================================================
@@ -2133,7 +2186,7 @@ namespace Oxide.Plugins
         {
             ShowRecoveryNotice(player);
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
-            PrintToChat(player, "<color=#FFD700>      RUSTDUCKBOT v1.4.3 - HELP</color>");
+            PrintToChat(player, "<color=#FFD700>      RUSTDUCKBOT v1.4.4 - HELP</color>");
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
             PrintToChat(player, "<color=#FFD700>/db terminal</color> — Open AI computer terminal");
             PrintToChat(player, "<color=#FFD700>/db help</color> — Show this help");
@@ -2278,7 +2331,7 @@ namespace Oxide.Plugins
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
             PrintToChat(player, "<color=#FFD700>      SERVER INFORMATION</color>");
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
-            PrintToChat(player, $"<color=#FFD700>Plugin:</color> RustDuckBot v1.4.3");
+            PrintToChat(player, $"<color=#FFD700>Plugin:</color> RustDuckBot v1.4.4");
             var aiProvider = _config.AgentProvider;
             var aiDetail = aiProvider == "duckbot" ? $"{_config.AgentConfig}" : (aiProvider == "lmstudio" ? $"{_config.LMStudioUrl}/{_config.LMStudioModel}" : _config.OpenAIBaseUrl + "/" + _config.OpenAIModel);
             PrintToChat(player, $"<color=#FFD700>AI Mode:</color> {aiProvider} — {aiDetail}");
@@ -4849,7 +4902,7 @@ namespace Oxide.Plugins
         // MISC
         // =====================================================================
 
-        private void ShowVersion(BasePlayer player) { PrintToChat(player, "<color=#FFD700>RustDuckBot v1.4.3</color> by Duckets | AI: " + (_localAI?.ProviderName ?? _config.AgentProvider) + " MCP Bridge"); }
+        private void ShowVersion(BasePlayer player) { PrintToChat(player, "<color=#FFD700>RustDuckBot v1.4.4</color> by Duckets | AI: " + (_localAI?.ProviderName ?? _config.AgentProvider) + " MCP Bridge"); }
         private void ShowCredits(BasePlayer player) { PrintToChat(player, "Created by <color=#FFD700>Duckets</color> | Powered by <color=#FFD700>DuckBot AI</color>"); }
         private void ShowChangelog(BasePlayer player) { PrintToChat(player, "v1.4.0: Massive feature expansion — 30 new commands across 7 categories"); }
         private void ShowDonateInfo(BasePlayer player) { PrintToChat(player, "Donations help keep the server running! Contact admin."); }
