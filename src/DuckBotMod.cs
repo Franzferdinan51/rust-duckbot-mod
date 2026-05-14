@@ -310,7 +310,7 @@ namespace Oxide.Plugins
 
             public static string Color(string hex) => hex + "FF";
 
-            public static string BuildTerminal(string playerName, string role, int unreadAlerts, string currentCam, int cmdCount)
+            public static CuiElementContainer BuildTerminal(string playerName, string role, int unreadAlerts, string currentCam, int cmdCount)
             {
                 var container = new CuiElementContainer();
 
@@ -484,7 +484,7 @@ namespace Oxide.Plugins
                 return container;
             }
 
-            public static string BuildCameraList(List<CameraInfo> cameras, string currentCam)
+            public static CuiElementContainer BuildCameraList(List<CameraInfo> cameras, string currentCam)
             {
                 var container = new CuiElementContainer();
 
