@@ -1063,22 +1063,22 @@ namespace Oxide.Plugins
                 ScanVendingMachines();
 
                 // Heartbeat every 30s
-                _heartbeatTimer = new Timer(30f, 30f, HeartbeatCallback);
+                _heartbeatTimer = new Timer(30f, HeartbeatCallback);
 
                 // Automation every 60s
-                _automationTimer = new Timer(60f, 60f, AutomationCallback);
+                _automationTimer = new Timer(60f, AutomationCallback);
 
                 // Decay check every 5 min
-                _decayTimer = new Timer(300f, 300f, DecayCheckCallback);
+                _decayTimer = new Timer(300f, DecayCheckCallback);
 
                 // Radar sweep every 10s
-                _radarTimer = new Timer(10f, 10f, RadarCallback);
+                _radarTimer = new Timer(10f, RadarCallback);
 
                 // AFK check every 30s
-                _afkCheckTimer = new Timer(30f, 30f, AFKCheckCallback);
+                _afkCheckTimer = new Timer(30f, AFKCheckCallback);
 
                 // Auto-save every 5 min
-                _autoSaveTimer = new Timer(300f, 300f, AutoSaveCallback);
+                _autoSaveTimer = new Timer(300f, AutoSaveCallback);
 
                 // Load persisted data
                 LoadData();
