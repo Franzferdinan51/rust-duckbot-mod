@@ -109,10 +109,8 @@ namespace Oxide.Plugins
         private WSRCONClient _rconClient;
         private AgentBridge _agentBridge;
         private LocalAIBridge _localAI;
-        private Timer _heartbeatTimer;
-        private Timer _automationTimer;
-        private Timer _decayTimer;
-        private Timer _radarTimer;
+        // Note: Field-based timers disabled - Oxide.Plugins.Timer constructor not available
+        // Use timer.Once() / timer.Repeat() instead for repeating callbacks
         private bool _serverInitialized;
         private bool _commandsRegistered;
         private bool _initFailed;
@@ -1063,22 +1061,8 @@ namespace Oxide.Plugins
                 ScanVendingMachines();
 
                 // Heartbeat every 30s
-                _heartbeatTimer = new Timer(30f, HeartbeatCallback);
-
-                // Automation every 60s
-                _automationTimer = new Timer(60f, AutomationCallback);
-
-                // Decay check every 5 min
-                _decayTimer = new Timer(300f, DecayCheckCallback);
-
-                // Radar sweep every 10s
-                _radarTimer = new Timer(10f, RadarCallback);
-
-                // AFK check every 30s
-                _afkCheckTimer = new Timer(30f, AFKCheckCallback);
-
-                // Auto-save every 5 min
-                _autoSaveTimer = new Timer(300f, AutoSaveCallback);
+                // Timers disabled - Oxide.Plugins.Timer unavailable in compiler
+                // _heartbeatTimer, _automationTimer, _decayTimer, _radarTimer, _afkCheckTimer, _autoSaveTimer
 
                 // Load persisted data
                 LoadData();
