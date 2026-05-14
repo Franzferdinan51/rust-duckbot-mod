@@ -153,6 +153,8 @@ test('gives contextual player tips and can announce them in-game', async () => {
 
 test('guards the C# /db command path against previous silent-load regressions', () => {
   const source = readFileSync(resolve(repoRoot, 'src/DuckBotMod.cs'), 'utf8');
+  assert.match(source, /namespace Oxide\.Plugins/);
+  assert.doesNotMatch(source, /^namespace RustDuckBot/m);
   assert.match(source, /cmd\.AddChatCommand\("db", this, nameof\(CmdDuckBot\)\)/);
   assert.match(source, /using Oxide\.Game\.Rust\.Cui;/);
   assert.doesNotMatch(source, /Subscribe\(nameof\(OnChat\)\)/);
