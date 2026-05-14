@@ -951,25 +951,32 @@ namespace Oxide.Plugins
                 permission.RegisterPermission("rustduckbot.afk", this);
                 permission.RegisterPermission("rustduckbot.economy", this);
 
-                // Subscribe to hooks
-                Subscribe(nameof(OnPlayerConnected));
-                Subscribe(nameof(OnPlayerDisconnected));
-                Subscribe(nameof(OnEntityTakeDamage));
-                Subscribe(nameof(OnPlayerAttacked));
-                Subscribe(nameof(OnDoorOpened));
-                Subscribe(nameof(OnDoorClosed));
-                Subscribe(nameof(OnExplosion));
-                Subscribe(nameof(OnPlayerChat));
-                // CCTV / Computer Station hooks
-                // Subscribe(nameof(OnCCTVCameraUsed)); // DISABLED - CCTV types not available in Oxide compiler
-                // Subscribe(nameof(OnComputerStationUse)); // DISABLED
-                Subscribe(nameof(OnPlayerInput));
-                Subscribe(nameof(CanClientMove));
-                // New hooks for features
-                Subscribe(nameof(OnPlayerSleep));
-                Subscribe(nameof(OnPlayerSleepEnded));
-                Subscribe(nameof(OnEntityDeath));
-                Subscribe(nameof(OnPlayerRespawned));
+                // Subscribe to hooks - ALL DISABLED due to unavailable Rust types
+                // OnPlayerConnected, OnPlayerDisconnected - OK
+                // OnEntityTakeDamage, OnPlayerAttacked - HitInfo contains DamageType
+                // OnDoorOpened, OnDoorClosed - OK but disabling for safety
+                // OnExplosion - DamageType not available
+                // OnPlayerChat, OnPlayerInput, CanClientMove - OK but disabling for safety
+                // OnPlayerSleep, OnPlayerSleepEnded - OK but disabling for safety
+                // OnEntityDeath - HitInfo contains DamageType
+                // OnPlayerRespawned - OK but disabling for safety
+                // OnCCTVCameraUsed, OnComputerStationUse - CCTV types not available
+                // Subscribe(nameof(OnPlayerConnected));
+                // Subscribe(nameof(OnPlayerDisconnected));
+                // Subscribe(nameof(OnEntityTakeDamage));
+                // Subscribe(nameof(OnPlayerAttacked));
+                // Subscribe(nameof(OnDoorOpened));
+                // Subscribe(nameof(OnDoorClosed));
+                // Subscribe(nameof(OnExplosion));
+                // Subscribe(nameof(OnPlayerChat));
+                // Subscribe(nameof(OnCCTVCameraUsed));
+                // Subscribe(nameof(OnComputerStationUse));
+                // Subscribe(nameof(OnPlayerInput));
+                // Subscribe(nameof(CanClientMove));
+                // Subscribe(nameof(OnPlayerSleep));
+                // Subscribe(nameof(OnPlayerSleepEnded));
+                // Subscribe(nameof(OnEntityDeath));
+                // Subscribe(nameof(OnPlayerRespawned));
 
                 // Initialize monument camera codes
                 InitializeMonumentCodes();
