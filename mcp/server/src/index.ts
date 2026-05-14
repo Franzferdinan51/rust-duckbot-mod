@@ -1503,7 +1503,12 @@ const defaultState = createState();
 export async function main(): Promise<void> {
   const config = loadConfig();
   const state = createState(config.seedDemoData);
-  startBridgeServer(state, config);
+
+  if (config.bridgeEnabled) {
+    startBridgeServer(state, config);
+  } else {
+    log('info', 'RustDuckBot bridge disabled (RUST_DUCKBOT_BRIDGE=0)');
+  }
 
   if (config.stdioEnabled) {
     const server = createMcpServer(state, config);
