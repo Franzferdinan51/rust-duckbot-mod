@@ -3109,8 +3109,8 @@ namespace RustDuckBot
 
             switch (rule.Action)
             {
-                case "lights.on": ConsoleSystemRun.ServerCommand("lights on"); break;
-                case "lights.off": ConsoleSystemRun.ServerCommand("lights off"); break;
+                case "lights.on": Server.Command("lights on"); break;
+                case "lights.off": Server.Command("lights off"); break;
                 case "alert.all": BroadcastMessage(trigger, "AUTOMATION", $"Alert triggered: {rule.Name}", "warning"); break;
                 case "alert.owner": if (trigger != null) PrintToChat(trigger, $"Automation: {rule.Name} triggered!"); break;
                 case "chat.welcome": if (trigger != null) PrintToChat(trigger, $"Welcome! Automation: {rule.Name}"); break;
@@ -3356,7 +3356,7 @@ namespace RustDuckBot
             if (target == null) { PrintToChat(player, $"Player not found: {parts[0]}"); return; }
             var reason = parts[1];
             var duration = parts.Length > 2 ? parts[2] : "perm";
-            ConsoleSystemRun.ServerCommand($"banid {target.UserIDString} \"{reason}\" {duration}");
+            Server.Command($"banid {target.UserIDString} \"{reason}\" {duration}");
             target.Kick(reason);
             PrintToChat(player, $"Banned: {target.displayName} ({duration})");
             LogActivity("admin", "Ban", $"{player.displayName} banned {target.displayName}: {reason} ({duration})", player.UserIDString, player.displayName);
@@ -3367,7 +3367,7 @@ namespace RustDuckBot
         {
             if (!HasRoleOrHigher(session.Role, "admin")) { PrintToChat(player, "<color=#FF4444>Admin required</color>"); return; }
             if (string.IsNullOrWhiteSpace(steamId)) { PrintToChat(player, "Usage: /db unban <steamid>"); return; }
-            ConsoleSystemRun.ServerCommand($"unban {steamId}");
+            Server.Command($"unban {steamId}");
             PrintToChat(player, $"<color=#00FF00>Unbanned:</color> {steamId}");
             LogActivity("admin", "Unban", $"{player.displayName} unbanned {steamId}", player.UserIDString, player.displayName);
         }
@@ -4216,7 +4216,7 @@ namespace RustDuckBot
             }
             session.LastDailyReward = DateTime.Now;
             if (_config.DailyRewardScrap > 0)
-                ConsoleSystemRun.ServerCommand("scavenger.additem \"" + player.UserIDString + "\" scrap " + _config.DailyRewardScrap);
+                Server.Command("scavenger.additem \"" + player.UserIDString + "\" scrap " + _config.DailyRewardScrap);
             PrintToChat(player, "<color=#FFD700>Daily Reward</color>");
             PrintToChat(player, $"<color=#00FF88>+{_config.DailyRewardScrap} scrap</color>");
             if (_config.DailyRewardRP > 0) PrintToChat(player, $"<color=#4DA6FF>+{_config.DailyRewardRP} RP</color>");
@@ -4421,7 +4421,7 @@ namespace RustDuckBot
                 return;
             }
 
-            ConsoleSystemRun.ServerCommand("kit give " + kit.RustKitName + " " + player.UserIDString);
+            Server.Command("kit give " + kit.RustKitName + " " + player.UserIDString);
             RecordKitUse(player.userID, kit.Name);
             PrintToChat(player, "<color=#00FF88>Kit redeemed:</color> " + kit.DisplayName);
             PrintToChat(player, "<color=#888>Next use in " + kit.CooldownMinutes + " minutes.</color>");
@@ -5195,7 +5195,7 @@ namespace RustDuckBot
             var duration = GetMessageString(message, "duration", "perm");
             if (string.IsNullOrWhiteSpace(target)) return;
 
-            ConsoleSystemRun.ServerCommand($"banid {target} {duration} \"{reason}\"");
+            Server.Command($"banid {target} {duration} \"{reason}\"");
             LogActivity("admin", "MCP ban", $"{target}: {reason} ({duration})");
         }
 
@@ -5279,7 +5279,7 @@ namespace RustDuckBot
                 return;
             }
 
-            ConsoleSystemRun.ServerCommand("kit give " + kit.RustKitName + " " + target.UserIDString);
+            Server.Command("kit give " + kit.RustKitName + " " + target.UserIDString);
             LogActivity("kits", "MCP kit grant", actor + " granted kit '" + kit.Name + "' to " + target.displayName, target.UserIDString, target.displayName);
             PrintToChat(target, "<color=#00FF88>DuckBot granted kit:</color> " + kit.DisplayName);
         }
@@ -5621,7 +5621,7 @@ namespace RustDuckBot
                 return;
             }
 
-            ConsoleSystemRun.ServerCommand(command);
+            Server.Command(command);
             LogDuckBotDebug($"Console fallback command by {actor}: {command}");
         }
 
