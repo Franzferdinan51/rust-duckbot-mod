@@ -963,8 +963,8 @@ namespace Oxide.Plugins
                 Subscribe(nameof(OnExplosion));
                 Subscribe(nameof(OnPlayerChat));
                 // CCTV / Computer Station hooks
-                Subscribe(nameof(OnCCTVCameraUsed));
-                Subscribe(nameof(OnComputerStationUse));
+                // Subscribe(nameof(OnCCTVCameraUsed)); // DISABLED - CCTV types not available in Oxide compiler
+                // Subscribe(nameof(OnComputerStationUse)); // DISABLED
                 Subscribe(nameof(OnPlayerInput));
                 Subscribe(nameof(CanClientMove));
                 // New hooks for features
