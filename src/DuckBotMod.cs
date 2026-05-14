@@ -651,6 +651,49 @@ namespace Oxide.Plugins
             public string Theme = "default"; // default, dark, security, industrial
         }
 
+        private PlayerSession GetOrCreateSession(BasePlayer player)
+        {
+            if (player == null) return null;
+
+            if (!_sessions.TryGetValue(player.userID, out var session) || session == null)
+            {
+                session = new PlayerSession
+                {
+                    PlayerId = player.userID,
+                    DisplayName = player.displayName,
+                    Role = permission.UserHasPermission(player.UserIDString, "rustduckbot.admin") ? "admin"
+                        : permission.UserHasPermission(player.UserIDString, "rustduckbot.mod") ? "mod"
+                        : permission.UserHasPermission(player.UserIDString, "rustduckbot.vip") ? "vip"
+                        : "user",
+                    SessionStart = DateTime.Now,
+                    LastSeen = DateTime.Now,
+                    IsOnline = true
+                };
+                _sessions[player.userID] = session;
+            }
+
+            session.DisplayName = player.displayName;
+            session.IsOnline = true;
+            session.LastSeen = DateTime.Now;
+            session.Permissions = new HashSet<string>(new[]
+            {
+                "rustduckbot.use",
+                "rustduckbot.vip",
+                "rustduckbot.mod",
+                "rustduckbot.admin",
+                "rustduckbot.security",
+                "rustduckbot.automation",
+                "rustduckbot.trading",
+                "rustduckbot.intel",
+                "rustduckbot.teleport",
+                "rustduckbot.moderation",
+                "rustduckbot.afk",
+                "rustduckbot.economy"
+            }.Where(p => permission.UserHasPermission(player.UserIDString, p)));
+
+            return session;
+        }
+
         // =====================================================================
         // CAMERA SYSTEM
         // =====================================================================
@@ -1581,7 +1624,7 @@ namespace Oxide.Plugins
             PrintToChat(player, $"<color=#FFD700>Cameras:</color> {_cameras.Count} registered");
             PrintToChat(player, $"<color=#FFD700>Vending:</color> {_vendingMachines.Count} machines");
             PrintToChat(player, $"<color=#FFD700>Alerts:</color> {GetUnacknowledgedAlerts(player.UserIDString).Count} unacknowledged");
-            PrintToChat(player, $"<color=#FFD700>MCP:</color> {(_mcpClient?.IsConnected() == true ? "<color=#00FF00>Connected" : "<color=#FF4444>Disconnected")}");
+            PrintToChat(player, $"<color=#FFD700>MCP:</color> {(_mcpClient?.IsConnected == true ? "<color=#00FF00>Connected" : "<color=#FF4444>Disconnected")}");
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
         }
 
@@ -1708,6 +1751,26 @@ namespace Oxide.Plugins
         // SECURITY SYSTEM
         // =====================================================================
 
+        private void ShowChatPanel(BasePlayer player)
+        {
+            var session = GetOrCreateSession(player);
+            var history = session?.ChatHistory ?? new List<ChatEntry>();
+            PrintToChat(player, "<color=#FFD700>═══ CHAT PANEL ═══</color>");
+            if (history.Count == 0)
+            {
+                PrintToChat(player, "No recent DuckBot chat history.");
+                PrintToChat(player, "Use <color=#4DA6FF>/db ask <question></color> to talk to DuckBot.");
+                return;
+            }
+
+            foreach (var entry in history.Skip(Math.Max(0, history.Count - 8)))
+            {
+                var who = entry.IsAI ? "DuckBot" : entry.Sender;
+                var color = entry.IsAI ? "#FFD700" : "#4DA6FF";
+                PrintToChat(player, $"<color={color}>{who}:</color> {entry.Message}");
+            }
+        }
+
         private void ShowSecurityDashboard(BasePlayer player, PlayerSession session)
         {
             if (!HasRoleOrHigher(session.Role, "vip")) { PrintToChat(player, "<color=#FF4444>VIP+ required</color>"); return; }
@@ -1724,7 +1787,6 @@ namespace Oxide.Plugins
             PrintToChat(player, $"<color=#FFD700>Online Players:</color> {BasePlayer.activePlayerList.Count}");
             PrintToChat(player, $"<color=#FFD700>Tracked Players:</color> {_trackedPlayers.Count}");
 
-            // Show recent alerts
             if (alerts.Count > 0)
             {
                 PrintToChat(player, "\n<color=#FF4444>Recent Alerts:</color>");
@@ -1735,7 +1797,6 @@ namespace Oxide.Plugins
                 }
             }
 
-            // Show recent access
             if (accessEntries.Count > 0)
             {
                 PrintToChat(player, "\n<color=#888>Recent Access:</color>");
@@ -1745,7 +1806,6 @@ namespace Oxide.Plugins
                 }
             }
 
-            // Show monitored bases
             var myBases = _monitoredBases.Where(b => b.OwnerId == player.userID || b.AuthorizedPlayers.Contains(player.UserIDString)).ToList();
             if (myBases.Count > 0)
             {
@@ -1979,7 +2039,7 @@ namespace Oxide.Plugins
             if (Array.IndexOf(validActions, action) < 0) { PrintToChat(player, $"Valid: {string.Join(", ", validActions)}"); return; }
 
             var doors = UnityEngine.Object.FindObjectsOfType<Door>().ToList();
-            var targetDoor = doors.FirstOrDefault(d => d.UserIDString == parts[0] || GetLocation(d.transform.position).Contains(parts[0]));
+            var targetDoor = doors.FirstOrDefault(d => d.net != null && d.net.ID.Value.ToString() == parts[0] || GetLocation(d.transform.position).Contains(parts[0]));
             if (targetDoor == null) { PrintToChat(player, $"Door not found: {parts[0]}"); return; }
 
             switch (action)
@@ -1996,11 +2056,13 @@ namespace Oxide.Plugins
 
         private void ListLights(BasePlayer player, PlayerSession session)
         {
-            var lights = UnityEngine.Object.FindObjectsOfType<ElectricHeater>().ToList();
+            var lights = UnityEngine.Object.FindObjectsOfType<BaseEntity>()
+                .Where(e => e != null && e.ShortPrefabName != null && e.ShortPrefabName.ToLowerInvariant().Contains("light"))
+                .ToList();
             PrintToChat(player, $"<color=#9B59B6>═══ LIGHTS ({lights.Count} found) ═══</color>");
             foreach (var light in lights.Take(20))
             {
-                var isOn = light.IsOn();
+                var isOn = light.HasFlag(BaseEntity.Flags.On);
                 PrintToChat(player, $"  {(isOn ? "💡" : "⚫")} {light.ShortPrefabName ?? "Light"} @ {GetLocation(light.transform.position)}");
             }
         }
@@ -2023,7 +2085,7 @@ namespace Oxide.Plugins
             foreach (var turret in turrets)
             {
                 var online = turret.IsOnline();
-                var active = turret.IsActive();
+                var active = turret.HasFlag(BaseEntity.Flags.On);
                 PrintToChat(player, $"  {(online ? "🔫" : "⚫")} {turret.ShortPrefabName ?? "Turret"} {(active ? "🔫ACTIVE" : "")} @ {GetLocation(turret.transform.position)}");
             }
         }
@@ -2053,7 +2115,10 @@ namespace Oxide.Plugins
 
         private void ShowUpkeep(BasePlayer player, PlayerSession session)
         {
-            var upkeep = player.inventory.AllItems().Sum(i => i.amount);
+            var upkeep = 0;
+            if (player.inventory?.containerMain?.itemList != null) upkeep += player.inventory.containerMain.itemList.Sum(i => i.amount);
+            if (player.inventory?.containerBelt?.itemList != null) upkeep += player.inventory.containerBelt.itemList.Sum(i => i.amount);
+            if (player.inventory?.containerWear?.itemList != null) upkeep += player.inventory.containerWear.itemList.Sum(i => i.amount);
             PrintToChat(player, "<color=#9B59B6>═══ UPKEEP ═══</color>");
             PrintToChat(player, "Use server UI to manage upkeep. Checking your TC auth status...");
             var authPlayers = new List<string>(); // Placeholder
@@ -2227,7 +2292,7 @@ namespace Oxide.Plugins
             PrintToChat(player, $"  SteamID: {target.UserIDString}");
             PrintToChat(player, $"  Role: {pSession.Role}");
             PrintToChat(player, $"  Position: {GetLocation(target.transform.position)}");
-            PrintToChat(player, $"  Online: {(target.IsConnected() ? "🟢" : "⚫")} {(tracked?.LastSeen ?? DateTime.Now):HH:mm}");
+            PrintToChat(player, $"  Online: {(target.IsConnected ? "🟢" : "⚫")} {(tracked?.LastSeen ?? DateTime.Now):HH:mm}");
 
             if (tracked != null)
             {
@@ -2530,7 +2595,7 @@ namespace Oxide.Plugins
                 PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {line.Trim()}");
 
             // Send to MCP (skip if we used a local provider without MCP)
-            if (_mcpClient?.IsConnected() == true)
+            if (_mcpClient?.IsConnected == true)
                 _mcpClient?.SendMessage(new { type = "ai_chat", playerId = player.UserIDString, playerName = player.displayName, message, response });
         }
 
@@ -2677,8 +2742,8 @@ namespace Oxide.Plugins
             PrintToChat(player, $"<color=#FFD700>FPS:</color> {fps:F0}");
             PrintToChat(player, $"<color=#FFD700>Memory:</color> {mem:F0}MB");
             PrintToChat(player, $"<color=#FFD700>Players:</color> {active} online, {sleeping} sleeping");
-            PrintToChat(player, $"<color=#FFD700>MCP:</color> {(_mcpClient?.IsConnected() == true ? "<color=#00FF00>Connected" : "<color=#FF4444>Disconnected")}");
-            PrintToChat(player, $"<color=#FFD700>RCON:</color> {(_rconClient?.IsConnected() == true ? "<color=#00FF00>Connected" : "<color=#FF9900>Plugin console fallback")}");
+            PrintToChat(player, $"<color=#FFD700>MCP:</color> {(_mcpClient?.IsConnected == true ? "<color=#00FF00>Connected" : "<color=#FF4444>Disconnected")}");
+            PrintToChat(player, $"<color=#FFD700>RCON:</color> {(_rconClient?.IsConnected == true ? "<color=#00FF00>Connected" : "<color=#FF9900>Plugin console fallback")}");
             PrintToChat(player, $"<color=#FFD700>Cameras:</color> {_cameras.Count}");
             PrintToChat(player, $"<color=#FFD700>Vending:</color> {_vendingMachines.Count}");
             PrintToChat(player, $"<color=#FFD700>Alerts:</color> {_activeAlerts.Count} active");
@@ -2771,7 +2836,8 @@ namespace Oxide.Plugins
             if (string.IsNullOrWhiteSpace(targetName)) { PrintToChat(player, "Usage: /db freeze <player>"); return; }
             var target = FindPlayer(targetName);
             if (target == null) { PrintToChat(player, $"Player not found: {targetName}"); return; }
-            target.SetFlag(BaseEntity.Flags.Frozen, true);
+            target.PauseFlyHackDetection(5f);
+            target.SendConsoleCommand("global.cinematicmode true");
             PrintToChat(player, $"<color=#00BFFF>Frozen:</color> {target.displayName}");
         }
 
@@ -2945,8 +3011,8 @@ namespace Oxide.Plugins
                 case "list":
                     PrintToChat(player, "<color=#FFD700>━━━ TC AUTH @" + GetLocation(nearestTC.transform.position) + " ━━━</color>");
                     PrintToChat(player, "Authorized: " + nearestTC.authorizedPlayers.Count);
-                    foreach (var auth in nearestTC.authorizedPlayers.Take(10))
-                        PrintToChat(player, "  * " + auth.username + " (" + auth.userid + ")");
+                    foreach (var authId in nearestTC.authorizedPlayers.Take(10))
+                        PrintToChat(player, "  * " + authId);
                     if (nearestTC.authorizedPlayers.Count > 10)
                         PrintToChat(player, "  <color=#888>...and " + (nearestTC.authorizedPlayers.Count - 10) + " more</color>");
                     break;
@@ -2955,7 +3021,7 @@ namespace Oxide.Plugins
                     if (string.IsNullOrEmpty(targetName)) { PrintToChat(player, "Usage: /db tcmanage add <player>"); return; }
                     var target = FindPlayer(targetName);
                     if (target == null) { PrintToChat(player, "<color=#FF4444>Player not found:</color> " + targetName); return; }
-                    nearestTC.authorizedPlayers.Add(new Facepunch.PlayerNameID { userid = target.userID, username = target.displayName });
+                    nearestTC.authorizedPlayers.Add(target.userID);
                     nearestTC.SendNetworkUpdate();
                     PrintToChat(player, "<color=#00FF00>✅ Added to TC:</color> " + target.displayName);
                     break;
@@ -2964,8 +3030,8 @@ namespace Oxide.Plugins
                     if (string.IsNullOrEmpty(removeName)) { PrintToChat(player, "Usage: /db tcmanage remove <player>"); return; }
                     var removeTarget = FindPlayer(removeName);
                     if (removeTarget == null) { PrintToChat(player, "<color=#FF4444>Player not found:</color> " + removeName); return; }
-                    var authed = nearestTC.authorizedPlayers.FirstOrDefault(a => a.userid == removeTarget.userID);
-                    if (authed != null) { nearestTC.authorizedPlayers.Remove(authed); nearestTC.SendNetworkUpdate(); PrintToChat(player, "<color=#00FF00>✅ Removed from TC:</color> " + removeTarget.displayName); }
+                    var authed = nearestTC.authorizedPlayers.FirstOrDefault(a => a == removeTarget.userID);
+                    if (authed != 0) { nearestTC.authorizedPlayers.Remove(authed); nearestTC.SendNetworkUpdate(); PrintToChat(player, "<color=#00FF00>✅ Removed from TC:</color> " + removeTarget.displayName); }
                     else PrintToChat(player, "<color=#FF4444>Player not authorized in this TC.</color>");
                     break;
                 default:
@@ -3010,27 +3076,20 @@ namespace Oxide.Plugins
 
         private void ShowTime(BasePlayer player, PlayerSession session)
         {
-            var time = TODWorld.Timespan;
-            var hours = (int)time.TotalHours % 24;
-            var mins = (int)time.TotalMinutes % 60;
+            var now = DateTime.Now;
+            var hours = now.Hour;
+            var mins = now.Minute;
             PrintToChat(player, "<color=#FFD700>═══ GAME TIME ═══</color>");
             PrintToChat(player, $"Time: {hours:D2}:{mins:D2}");
-            var day = 1;
-            try
-            {
-                if (World.Timeframes != null && World.Timeframes.ContainsKey("day"))
-                    day = World.Timeframes["day"];
-            }
-            catch { }
-            PrintToChat(player, $"Day: {day}");
+            PrintToChat(player, "Day/Night estimate based on local server time");
             PrintToChat(player, $"Sun: {(hours >= 6 && hours < 18 ? "☀️" : "🌙")}");
         }
 
         private void HandleTimeToNight(BasePlayer player, PlayerSession session)
         {
-            var time = TODWorld.Timespan;
-            var hours = (int)time.TotalHours % 24;
-            var mins = (int)time.TotalMinutes % 60;
+            var now = DateTime.Now;
+            var hours = now.Hour;
+            var mins = now.Minute;
             var currentMinutes = hours * 60 + mins;
             const int nightStartMinutes = 18 * 60;
             const int dayMinutes = 24 * 60;
@@ -3125,7 +3184,7 @@ namespace Oxide.Plugins
                 {
                     _teleportRequests.Remove(target.userID);
                     PrintToChat(target, $"<color=#888>TP request from {player.displayName} expired.</color>");
-                    if (target.IsConnected()) PrintToChat(player, $"<color=#888>Request to {target.displayName} expired.</color>");
+                    if (target.IsConnected) PrintToChat(player, $"<color=#888>Request to {target.displayName} expired.</color>");
                 }
             });
         }
@@ -3174,7 +3233,7 @@ namespace Oxide.Plugins
             var fromPlayer = BasePlayer.FindByID(req.FromId);
             _teleportRequests.Remove(player.userID);
             PrintToChat(player, "<color=#FF4444>Request denied.</color>");
-            if (fromPlayer?.IsConnected() == true)
+            if (fromPlayer?.IsConnected == true)
                 PrintToChat(fromPlayer, $"<color=#FF4444>{player.displayName} denied your teleport request.</color>");
         }
 
@@ -3338,7 +3397,7 @@ namespace Oxide.Plugins
 
         private void DoTeleport(BasePlayer player, Vector3 destination, string reason)
         {
-            if (player == null || !player.IsConnected()) return;
+            if (player == null || !player.IsConnected) return;
 
             var session = GetOrCreateSession(player);
 
@@ -3358,7 +3417,7 @@ namespace Oxide.Plugins
 
                 timer.Once(_config.TeleportWarmupSeconds, () =>
                 {
-                    if (session._pendingTeleport && player.IsConnected())
+                    if (session._pendingTeleport && player.IsConnected)
                     {
                         // Teleport using console command (works correctly with vehicles, sleeping, etc.)
                         player.SendConsoleCommand($"teleport {destination.x} {destination.y} {destination.z}");
@@ -3820,8 +3879,8 @@ namespace Oxide.Plugins
                 if (e is BuildingPrivlidge tc && Vector3.Distance(tc.transform.position, pos) < 200f)
                 {
                     var dist = Vector3.Distance(tc.transform.position, pos);
-                    var auth = tc.authorizedPlayers.Select(a => a.username).ToList();
-                    tcList.Add($"* TC @ {GetLocation(tc.transform.position)} | Auth:{auth.Count} | {dist:F0}m");
+                    var authCount = tc.authorizedPlayers.Count;
+                    tcList.Add($"* TC @ {GetLocation(tc.transform.position)} | Auth:{authCount} | {dist:F0}m");
                     if (tcList.Count >= 5) break;
                 }
             }
@@ -4140,17 +4199,55 @@ namespace Oxide.Plugins
             return string.IsNullOrWhiteSpace(remote) ? "No AI response available." : remote;
         }
 
-        private bool TryGrantKit(BasePlayer target, KitDefinition kit, out string error)
+        private bool TryGrantBuiltInKit(BasePlayer target, KitDefinition kit, out string error)
         {
             error = null;
-            if (Kits == null)
+            if (!_builtInKitContents.TryGetValue(kit.Name, out var items) || items.Count == 0)
             {
-                error = "Server Kits plugin is not loaded.";
+                error = "Built-in kit contents are not defined.";
                 return false;
             }
 
-            Server.Command("kit give " + kit.RustKitName + " " + target.UserIDString);
+            var granted = new List<Item>();
+            foreach (var kitItem in items)
+            {
+                var item = ItemManager.CreateByName(kitItem.ShortName, kitItem.Amount, kitItem.Skin);
+                if (item == null)
+                {
+                    foreach (var created in granted) created?.Remove();
+                    error = "Invalid item shortname: " + kitItem.ShortName;
+                    return false;
+                }
+
+                if (kitItem.Condition > 0)
+                    item.condition = kitItem.Condition;
+
+                var container = target.inventory?.containerMain;
+                if (kitItem.Container == "belt") container = target.inventory?.containerBelt;
+                else if (kitItem.Container == "wear") container = target.inventory?.containerWear;
+
+                if (container == null || !item.MoveToContainer(container))
+                    target.GiveItem(item, BaseEntity.GiveItemReason.PickedUp);
+
+                granted.Add(item);
+            }
+
             return true;
+        }
+
+        private bool TryGrantKit(BasePlayer target, KitDefinition kit, out string error)
+        {
+            if (TryGrantBuiltInKit(target, kit, out error))
+                return true;
+
+            if (Kits != null)
+            {
+                error = null;
+                Server.Command("kit give " + kit.RustKitName + " " + target.UserIDString);
+                return true;
+            }
+
+            return false;
         }
 
         private void ShowVersion(BasePlayer player) { PrintToChat(player, "<color=#FFD700>RustDuckBot v1.4.5</color> by Duckets | AI: " + (_localAI?.ProviderName ?? _config.AgentProvider)); }
@@ -4284,7 +4381,7 @@ namespace Oxide.Plugins
 
         private bool IsPlayerAtComputerStation(BasePlayer player)
         {
-            return player.GetComponentInParent<ComputerStation>() != null || player.GetComponentInParent<CameraViewerConsole>() != null;
+            return player.GetComponentInParent<ComputerStation>() != null;
         }
 
         private void ScanBases()
@@ -4294,7 +4391,7 @@ namespace Oxide.Plugins
             {
                 var baseInfo = new BaseInfo
                 {
-                    OwnerId = tc.OwnerID.ToString(),
+                    OwnerId = tc.OwnerID,
                     Name = $"Base @ {GetLocation(tc.transform.position)}",
                     Position = tc.transform.position,
                     BlockCount = CountBlocksNear(tc.transform.position),
@@ -4316,7 +4413,7 @@ namespace Oxide.Plugins
             {
                 _vendingMachines.Add(new VendingInfo
                 {
-                    Id = vm.UserIDString ?? vm.net?.ID?.Value.ToString() ?? Guid.NewGuid().ToString().Substring(0, 8),
+                    Id = vm.net != null ? vm.net.ID.Value.ToString() : vm.OwnerID.ToString(),
                     Name = vm.ShortPrefabName ?? "Vending Machine",
                     OwnerId = vm.OwnerID.ToString(),
                     Position = vm.transform.position,
@@ -4736,7 +4833,7 @@ namespace Oxide.Plugins
         {
             if (!_serverInitialized) return;
             var players = BasePlayer.activePlayerList;
-            var playerList = players.Select(p => new { id = p.UserIDString, name = p.displayName, ping = p.net?.connection?.avgPing ?? 0, role = GetOrCreateSession(p).Role, connectedAt = GetOrCreateSession(p).SessionStart.ToString("o") }).ToList();
+            var playerList = players.Select(p => new { id = p.UserIDString, name = p.displayName, ping = 0, role = GetOrCreateSession(p).Role, connectedAt = GetOrCreateSession(p).SessionStart.ToString("o") }).ToList();
 
             _mcpClient?.SendMessage(new
             {
@@ -4744,8 +4841,8 @@ namespace Oxide.Plugins
                 time = DateTime.Now.ToString("o"),
                 playerCount = players.Count,
                 players = playerList,
-                mcpConnected = _mcpClient?.IsConnected() == true,
-                rconConnected = _rconClient?.IsConnected() == true
+                mcpConnected = _mcpClient?.IsConnected == true,
+                rconConnected = _rconClient?.IsConnected == true
             });
         }
 
@@ -4757,9 +4854,9 @@ namespace Oxide.Plugins
                 switch (rule.Trigger)
                 {
                     case "time":
-                        var time = TODWorld.Timespan;
-                        if (rule.Condition == "sunset" && time.Hours >= 18 && time.Hours <= 19) trigger = true;
-                        if (rule.Condition == "sunrise" && time.Hours >= 5 && time.Hours <= 6) trigger = true;
+                        var currentHour = DateTime.Now.Hour;
+                        if (rule.Condition == "sunset" && currentHour >= 18 && currentHour <= 19) trigger = true;
+                        if (rule.Condition == "sunrise" && currentHour >= 5 && currentHour <= 6) trigger = true;
                         break;
                 }
                 if (trigger) RunAutomation(rule, null);
@@ -4804,8 +4901,8 @@ namespace Oxide.Plugins
                 players = BasePlayer.activePlayerList.Count,
                 cameras = _cameras.Count,
                 alerts = _activeAlerts.Count,
-                mcpConnected = _mcpClient?.IsConnected() == true,
-                rconConnected = _rconClient?.IsConnected() == true
+                mcpConnected = _mcpClient?.IsConnected == true,
+                rconConnected = _rconClient?.IsConnected == true
             });
         }
 
@@ -4825,6 +4922,17 @@ namespace Oxide.Plugins
         private Dictionary<ulong, Dictionary<string, DateTime>> _kitCooldowns = new Dictionary<ulong, Dictionary<string, DateTime>>();
         private Dictionary<ulong, Dictionary<string, int>> _kitDailyUses = new Dictionary<ulong, Dictionary<string, int>>();
 
+        private class BuiltInKitItem
+        {
+            public string ShortName;
+            public int Amount;
+            public string Container;
+            public ulong Skin;
+            public float Condition;
+        }
+
+        private Dictionary<string, List<BuiltInKitItem>> _builtInKitContents = new Dictionary<string, List<BuiltInKitItem>>(StringComparer.OrdinalIgnoreCase);
+
         private void InitializeKitDefinitions()
         {
             _kitDefinitions = new Dictionary<string, KitDefinition>(StringComparer.OrdinalIgnoreCase)
@@ -4835,6 +4943,57 @@ namespace Oxide.Plugins
                 ["mini"] = new KitDefinition { Name = "mini", DisplayName = "Mini Starter", Category = "utility", Description = "Server-defined mini kit", RustKitName = "mini", Permission = "rustduckbot.vip", CooldownMinutes = 240, MaxUsesPerDay = 1 },
                 ["scrap"] = new KitDefinition { Name = "scrap", DisplayName = "Scrap Heap", Category = "resources", Description = "Server-defined scrap kit", RustKitName = "scrap", Permission = "rustduckbot.use", CooldownMinutes = 30, MaxUsesPerDay = 4 },
                 ["admin"] = new KitDefinition { Name = "admin", DisplayName = "Admin Kit", Category = "admin", Description = "Admin-only server kit", RustKitName = "admin", Permission = "rustduckbot.admin", CooldownMinutes = 60, MaxUsesPerDay = 2 }
+            };
+
+            _builtInKitContents = new Dictionary<string, List<BuiltInKitItem>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["starter"] = new List<BuiltInKitItem>
+                {
+                    new BuiltInKitItem { ShortName = "rock", Amount = 1, Container = "belt" },
+                    new BuiltInKitItem { ShortName = "torch", Amount = 1, Container = "belt" },
+                    new BuiltInKitItem { ShortName = "bandage", Amount = 5, Container = "belt" },
+                    new BuiltInKitItem { ShortName = "wood", Amount = 3000, Container = "main" },
+                    new BuiltInKitItem { ShortName = "stones", Amount = 3000, Container = "main" },
+                    new BuiltInKitItem { ShortName = "metal.fragments", Amount = 1000, Container = "main" },
+                    new BuiltInKitItem { ShortName = "hatchet", Amount = 1, Container = "belt" },
+                    new BuiltInKitItem { ShortName = "pickaxe", Amount = 1, Container = "belt" }
+                },
+                ["pvp"] = new List<BuiltInKitItem>
+                {
+                    new BuiltInKitItem { ShortName = "rifle.ak", Amount = 1, Container = "belt" },
+                    new BuiltInKitItem { ShortName = "ammo.rifle", Amount = 128, Container = "main" },
+                    new BuiltInKitItem { ShortName = "syringe.medical", Amount = 6, Container = "belt" },
+                    new BuiltInKitItem { ShortName = "metal.facemask", Amount = 1, Container = "wear" },
+                    new BuiltInKitItem { ShortName = "metal.plate.torso", Amount = 1, Container = "wear" },
+                    new BuiltInKitItem { ShortName = "roadsign.kilt", Amount = 1, Container = "wear" },
+                    new BuiltInKitItem { ShortName = "shoes.boots", Amount = 1, Container = "wear" }
+                },
+                ["building"] = new List<BuiltInKitItem>
+                {
+                    new BuiltInKitItem { ShortName = "hammer", Amount = 1, Container = "belt" },
+                    new BuiltInKitItem { ShortName = "building.planner", Amount = 1, Container = "belt" },
+                    new BuiltInKitItem { ShortName = "wood", Amount = 10000, Container = "main" },
+                    new BuiltInKitItem { ShortName = "stones", Amount = 10000, Container = "main" },
+                    new BuiltInKitItem { ShortName = "metal.fragments", Amount = 5000, Container = "main" },
+                    new BuiltInKitItem { ShortName = "toolgun", Amount = 1, Container = "belt" }
+                },
+                ["mini"] = new List<BuiltInKitItem>
+                {
+                    new BuiltInKitItem { ShortName = "scrap", Amount = 750, Container = "main" },
+                    new BuiltInKitItem { ShortName = "lowgradefuel", Amount = 200, Container = "main" },
+                    new BuiltInKitItem { ShortName = "metal.fragments", Amount = 1000, Container = "main" }
+                },
+                ["scrap"] = new List<BuiltInKitItem>
+                {
+                    new BuiltInKitItem { ShortName = "scrap", Amount = 500, Container = "main" }
+                },
+                ["admin"] = new List<BuiltInKitItem>
+                {
+                    new BuiltInKitItem { ShortName = "supply.signal", Amount = 5, Container = "main" },
+                    new BuiltInKitItem { ShortName = "explosive.timed", Amount = 10, Container = "main" },
+                    new BuiltInKitItem { ShortName = "rifle.l96", Amount = 1, Container = "belt" },
+                    new BuiltInKitItem { ShortName = "ammo.rifle.explosive", Amount = 64, Container = "main" }
+                }
             };
         }
 
@@ -4916,7 +5075,7 @@ namespace Oxide.Plugins
                     PrintToChat(player, "  <color=#4DA6FF>/db kit " + kit.Name + "</color>" + status + " -- " + kit.Description);
                 }
             }
-            PrintToChat(player, "\n<color=#888>Uses the server Kits plugin command: kit give &lt;name&gt; &lt;steamid&gt;</color>");
+            PrintToChat(player, "\n<color=#888>Built-in RustDuckBot kits are active on this server.</color>");
         }
 
         private void ShowPlayerKitInfo(BasePlayer player, BasePlayer target)
@@ -5037,7 +5196,7 @@ namespace Oxide.Plugins
         {
             if (string.IsNullOrWhiteSpace(command)) return;
 
-            if (_rconClient?.IsConnected() == true)
+            if (_rconClient?.IsConnected == true)
             {
                 _rconClient.Execute(command);
                 LogDuckBotDebug($"RCON command by {actor}: {command}");
@@ -5109,7 +5268,7 @@ namespace Oxide.Plugins
             foreach (var player in BasePlayer.activePlayerList)
             {
                 var session = GetOrCreateSession(player);
-                if (!session.IsOnline || !player.IsConnected()) continue;
+                if (!session.IsOnline || !player.IsConnected) continue;
                 if (session.IsAFK && !session._afkManual) continue;
                 var idleTime = (DateTime.Now - session.LastActivity).TotalMinutes;
                 if (idleTime >= _config.AFKKickMinutes && _config.AutoKickAFK)
@@ -5162,14 +5321,14 @@ namespace Oxide.Plugins
             {
                 var ownerId = tc.OwnerID.ToString();
                 if (string.IsNullOrEmpty(ownerId)) continue;
-                var isAuth = tc.authorizedPlayers?.Any(p => p.userid == attacker.userID) ?? false;
+                var isAuth = tc.authorizedPlayers?.Any(p => p == attacker.userID) ?? false;
                 if (isAuth) continue;
                 var grid = GetGridCoord(position);
                 var monument = GetNearestMonument(position);
                 foreach (var sid in _raidAlertSubscribers)
                 {
                     var sub = BasePlayer.Find(sid.ToString());
-                    if (sub != null && sub.IsConnected()) PrintToChat(sub, $"<color=#FF4444>⚠ RAID ALERT:</color> {attacker.displayName} is raiding near {grid} ({monument})");
+                    if (sub != null && sub.IsConnected) PrintToChat(sub, $"<color=#FF4444>⚠ RAID ALERT:</color> {attacker.displayName} is raiding near {grid} ({monument})");
                 }
                 _ = _agentBridge?.SendToAgentAsync(new { type = "raid_alert", attackerId = attacker.UserIDString, attackerName = attacker.displayName, victimId = victim.UserIDString, victimName = victim.displayName, gridCoord = grid, monument = monument, timestamp = DateTime.UtcNow.ToString("O") });
                 LogActivity("security", "Raid detected", $"{attacker.displayName} raiding at {grid} ({monument})", attacker.UserIDString, attacker.displayName);
@@ -5201,7 +5360,7 @@ namespace Oxide.Plugins
             {
                 session.TotalScrap += _config.DailyRewardScrap;
                 session.LastDailyReward = now;
-                timer.Once(1f, () => { if (player.IsConnected()) PrintToChat(player, $"<color=#00FF88>Welcome back! Daily reward: +{_config.DailyRewardScrap} scrap</color>"); });
+                timer.Once(1f, () => { if (player.IsConnected) PrintToChat(player, $"<color=#00FF88>Welcome back! Daily reward: +{_config.DailyRewardScrap} scrap</color>"); });
             }
             _ = _agentBridge?.SendToAgentAsync(new { type = "player_respawned", playerId = player.UserIDString, playerName = player.displayName, position = GetGridCoord(player.transform.position), timestamp = DateTime.UtcNow.ToString("O") });
         }
@@ -5355,7 +5514,7 @@ namespace Oxide.Plugins
             PrintToChat(player, $"<color=#FFD700>═══ GROUP: {group.Name} ═══</color>");
             PrintToChat(player, $"Leader: <color=#4DA6FF>{BasePlayer.Find(group.LeaderId.ToString())?.displayName ?? group.LeaderId.ToString()}</color>");
             PrintToChat(player, $"Members ({group.Members.Count}):");
-            foreach (var mid in group.Members) { var m = BasePlayer.Find(mid.ToString()); PrintToChat(player, $"  {(m != null && m.IsConnected() ? "<color=#00FF88>●" : "<color=#888>○")}</color> {m?.displayName ?? mid.ToString()}"); }
+            foreach (var mid in group.Members) { var m = BasePlayer.Find(mid.ToString()); PrintToChat(player, $"  {(m != null && m.IsConnected ? "<color=#00FF88>●" : "<color=#888>○")}</color> {m?.displayName ?? mid.ToString()}"); }
             PrintToChat(player, $"Created: {group.Created:yyyy-MM-dd}");
         }
 
@@ -5365,9 +5524,113 @@ namespace Oxide.Plugins
             _commandStats[cmd]++;
         }
 
+        private bool HasRoleOrHigher(string role, string required)
+        {
+            int Rank(string value)
+            {
+                switch ((value ?? "user").ToLowerInvariant())
+                {
+                    case "admin": return 3;
+                    case "mod": return 2;
+                    case "vip": return 1;
+                    default: return 0;
+                }
+            }
+
+            return Rank(role) >= Rank(required);
+        }
+
+        private string RoleColor(string role)
+        {
+            switch ((role ?? "user").ToLowerInvariant())
+            {
+                case "admin": return "#FF4444";
+                case "mod": return "#FF9900";
+                case "vip": return "#00BFFF";
+                default: return "#FFFFFF";
+            }
+        }
+
+        private string SeverityColor(string severity)
+        {
+            switch ((severity ?? "info").ToLowerInvariant())
+            {
+                case "critical": return "#FF0000";
+                case "high": return "#FF6B6B";
+                case "medium": return "#FF9900";
+                case "low": return "#FFD700";
+                default: return "#FFFFFF";
+            }
+        }
+
+        private string ThreatColor(string threat)
+        {
+            switch ((threat ?? "unknown").ToLowerInvariant())
+            {
+                case "critical": return "#FF0000";
+                case "high": return "#FF6B6B";
+                case "medium": return "#FF9900";
+                case "low": return "#FFD700";
+                default: return "#FFFFFF";
+            }
+        }
+
+        private string BroadcastColor(string type)
+        {
+            switch ((type ?? "info").ToLowerInvariant())
+            {
+                case "critical": return "#FF0000";
+                case "warning": return "#FF9900";
+                case "success": return "#00FF88";
+                default: return "#FFD700";
+            }
+        }
+
+        private string AccessIcon(string action)
+        {
+            switch ((action ?? string.Empty).ToLowerInvariant())
+            {
+                case "view": return "👁";
+                case "open": return "🚪";
+                case "lock": return "🔒";
+                case "unlock": return "🔓";
+                case "control_left":
+                case "control_right":
+                case "control_up":
+                case "control_down":
+                case "control_zoom":
+                case "control_zoom_in":
+                case "control_zoom_out":
+                case "control_reset": return "🎮";
+                default: return "•";
+            }
+        }
+
+        private bool ContainsIgnoreCase(string haystack, string needle)
+        {
+            if (string.IsNullOrEmpty(haystack) || string.IsNullOrEmpty(needle)) return false;
+            return haystack.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private string ActivityColor(string category)
+        {
+            switch ((category ?? string.Empty).ToLowerInvariant())
+            {
+                case "security": return "#FF6B6B";
+                case "camera": return "#00BFFF";
+                case "base": return "#9B59B6";
+                case "trading": return "#3498DB";
+                case "intel": return "#1ABC9C";
+                case "automation": return "#E67E22";
+                case "admin": return "#FF4444";
+                case "system": return "#FFD700";
+                default: return "#FFFFFF";
+            }
+        }
+
         private string GetGameTime()
         {
-            var t = TODWorld.Timespan;
+            var t = DateTime.Now.TimeOfDay;
             return $"{t.Hours:D2}:{t.Minutes:D2}";
         }
 
@@ -5438,7 +5701,7 @@ namespace Oxide.Plugins
             DefaultInstance = this;
         }
 
-        public bool IsConnected() => _connected && _ws?.State == WebSocketState.Open;
+        public bool IsConnected => _connected && _ws?.State == WebSocketState.Open;
 
         public async Task ConnectAsync()
         {
@@ -5472,7 +5735,7 @@ namespace Oxide.Plugins
 
         public async void SendMessage(object message)
         {
-            if (!IsConnected()) return;
+            if (!IsConnected) return;
             try
             {
                 var json = SimpleJson.Serialize(message);
@@ -5504,7 +5767,7 @@ namespace Oxide.Plugins
         // Drain queued events to the AI agent when the connection is healthy.
         private void DrainAgentEventQueue()
         {
-            if (!IsConnected()) return;
+            if (!IsConnected) return;
             lock (_queueLock)
             {
                 while (_agentEventQueue.Count > 0)
@@ -5575,7 +5838,7 @@ namespace Oxide.Plugins
             _host = host; _port = port; _password = password; _plugin = plugin;
         }
 
-        public bool IsConnected() => _connected && _ws?.State == WebSocketState.Open;
+        public bool IsConnected => _connected && _ws?.State == WebSocketState.Open;
 
         public async Task ConnectAsync()
         {
@@ -5616,7 +5879,7 @@ namespace Oxide.Plugins
 
         private async Task SendRCONCommand(string command)
         {
-            if (!IsConnected()) return;
+            if (!IsConnected) return;
             var msgId = System.Threading.Interlocked.Increment(ref _messageId);
             var json = SimpleJson.Serialize(new { Identifier = msgId, Message = command, Name = "WebRcon" });
             var bytes = Encoding.UTF8.GetBytes(json);
@@ -5915,27 +6178,28 @@ namespace Oxide.Plugins
 
         private string BuildSystemPrompt(RustDuckBot.ConfigData cfg)
         {
-            return $@"You are DuckBot, an AI assistant inside a Rust game server. Respond as a helpful, friendly NPC.
+            return $@"You are DuckBot, an AI assistant inside a Rust game server. Respond as a helpful, practical in-game terminal.
 Player role hierarchy: user < vip < mod < admin.
+Current provider mode: {cfg.AgentProvider}.
 
-You have access to these Rust server features (via the Rust plugin):
-- CCTV camera surveillance (monument cameras + base cameras)
-- Security alerts (raids, decays, breaches, turret kills)
-- Player tracking and online status
-- Base management (doors, lights, turrets, auth)
-- Trading and shop listings
-- Automation rules
-- Intel: kill stats, raid history, map markers
+Live server capabilities currently exposed through RustDuckBot:
+- AI chat and assistant-style help via LM Studio or MCP depending on provider
+- Built-in kits: starter, pvp, building, mini, scrap, admin
+- CCTV and camera workflows where supported by this build
+- Security alerts, raid history, decay information, player tracking, and map/grid context
+- Trading summaries, base analysis, automation summaries, and informational help commands
+- Admin/server helpers may exist, but action commands should be treated cautiously and only recommended when the user has permission
 
 Rules:
-- Keep responses under 200 words
-- Be concise and useful in the Rust game context
-- Answer Rust-related questions helpfully
-- If you don't know, say so — don't make up commands
-- Use emoji sparingly
+- Keep answers concise, useful, and Rust-specific
+- Prefer practical survival, base, loot, monument, raid, and progression guidance
+- Do not invent plugin capabilities that are not confirmed
+- If live data is unavailable, say so clearly and give best-effort advice
+- Distinguish informational guidance from direct server actions
+- Mention permissions or role limits when relevant
 - Never break character as an in-game AI terminal
 
-Server config: CameraControl={cfg.EnableCameraControl}, RaidAlerts={cfg.EnableRaidAlerts}, DecayAlerts={cfg.EnableDecayAlerts}";
+Server config flags: CameraControl={cfg.EnableCameraControl}, RaidAlerts={cfg.EnableRaidAlerts}, DecayAlerts={cfg.EnableDecayAlerts}, Automation={cfg.EnableAutomation}.";
         }
     }
 
