@@ -1154,7 +1154,8 @@ namespace Oxide.Plugins
                 LogActivity("security", "Combat", $"{attacker.displayName} hit {target.displayName} for {info.damageTypes.Total()}", attacker.UserIDString, attacker.displayName);
 
                 // Raid detection
-                if (info.damageTypes.Has(DamageType.Explosion) || info.damageTypes.Has(DamageType.Heat))
+                var dmg = info.damageTypes;
+                if (dmg != null && dmg.Count > 0)
                 {
                     CreateAlert("raid", "high", "Explosion detected", $"Explosion near {target.displayName}'s position", entity.transform.position);
                     LogActivity("security", "Raid", $"Explosion: {attacker.displayName} vs {target.displayName}", attacker.UserIDString, attacker.displayName);
@@ -4252,7 +4253,7 @@ namespace Oxide.Plugins
             if (string.IsNullOrEmpty(targetName)) { PrintToChat(player, "<color=#FFD700>Usage:</color> /db slay <player> [reason]"); return; }
             var target = FindPlayer(targetName);
             if (target == null) { PrintToChat(player, $"<color=#FF4444>Player not found:</color> {targetName}"); return; }
-            target.Hurt(new HitInfo(target, target, DamageType.Suicide, 9999f));
+            target.Hurt(9999f);
             Broadcast(player, session, $"<color=#FF4444>{target.displayName} was slain:</color> {reason}");
         }
 
