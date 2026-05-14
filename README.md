@@ -1,6 +1,6 @@
 # RustDuckBot
 
-> **v1.4.2** — AI-powered in-game terminal for Rust. Runs with or without an AI agent.
+> **v1.4.3** — AI-powered in-game terminal for Rust. Runs with or without an AI agent.
 
 RustDuckBot turns Rust's computer station into a full interactive AI terminal. When a player sits at a Computer Station item in-game, they get a CUI overlay panel — and every player gets 13 teleport commands, full moderation tools, economy rewards, combat intel, building helpers, and 176+ total commands. Powered by DuckBot, LM Studio, OpenAI, Claude, or OpenRouter.
 
@@ -35,7 +35,7 @@ This is the path to use with [WindowsGSM.RustOxideWithRustEdit](https://github.c
    ```text
    serverfiles\oxide\plugins\RustDuckBot.cs
    ```
-4. Start the server and watch the Oxide console/logs for `RustDuckBot v1.4.2 loaded`.
+4. Start the server and watch the Oxide console/logs for `RustDuckBot v1.4.3 loaded`.
 5. Edit the generated config:
    ```text
    serverfiles\oxide\config\RustDuckBot.json
@@ -45,13 +45,15 @@ This is the path to use with [WindowsGSM.RustOxideWithRustEdit](https://github.c
    oxide.reload RustDuckBot
    ```
 
-If `/db help` does nothing, the plugin is almost certainly not loaded. `/db help` does not call LM Studio or any AI backend. Check:
+If `/db help` returns `unknown command: db`, the plugin did not register with Oxide. `/db help` does not call LM Studio or any AI backend, so treat that as a plugin load/compile issue first. Check:
 
 - `serverfiles\oxide\logs\RustDuckBot*.txt`
 - WindowsGSM server console output
 - `serverfiles\server.log`
 - Whether the file is named exactly `RustDuckBot.cs`
 - Whether Oxide/uMod compiled it without C# errors
+
+v1.4.3 registers `/db` before optional AI/MCP/RCON startup and also includes a `[ChatCommand("db")]` fallback. If an optional startup step fails, `/db help` should still answer with a recovery-mode warning that includes the startup error from the Oxide console.
 
 For LM Studio testing on the same Windows host:
 
@@ -324,13 +326,13 @@ Full config is written to `oxide/config/RustDuckBot.json` on first load.
 | `5d3a6b4` | **v1.3.3** | 13 teleport commands + warmup + home system + back + coords |
 | `d9fb378` | **v1.4.0** | 30 new commands: moderation, economy, combat intel, building, notifications (176+ total commands) |
 | `7fd7696` | **v1.4.1** | WindowsGSM `/db` load-path fixes, AI kits, RCON guardrails, dice/8-ball/tips MCP tools |
-| `current` | **v1.4.2** | Full `/db` command routing sweep, mute/unmute/bug fixes, older Oxide C# syntax hardening |
+| `current` | **v1.4.3** | `/db` recovery-mode registration, ComputerStation session fixes, old-framework helper cleanup, safer local AI JSON parsing |
 
 ---
 
 ## File Structure
 ```
-src/DuckBotMod.cs              # Oxide/uMod Rust plugin (C#, ~5,400 lines, 176 commands)
+src/DuckBotMod.cs              # Oxide/uMod Rust plugin (C#, 6,000+ lines, 176+ commands)
 mcp/server/src/index.ts        # MCP server + WebSocket bridge (TypeScript)
 mcp/test/index.test.mjs        # MCP behavior tests
 skills/rust-duckbot/SKILL.md   # Agent-facing skill docs

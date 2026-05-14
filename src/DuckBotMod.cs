@@ -114,6 +114,9 @@ namespace Oxide.Plugins
         private Timer _decayTimer;
         private Timer _radarTimer;
         private bool _serverInitialized;
+        private bool _commandsRegistered;
+        private bool _initFailed;
+        private string _initError;
 
         public void PrintAsh(string message)
         {
@@ -474,7 +477,7 @@ namespace Oxide.Plugins
                     Parent = OVERLAY_NAME,
                     Components = {
                         new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = "1 0.04" },
-                        new CuiTextComponent { Text = "RustDuckBot v1.4.2 | /db help | AI: DuckBot", FontSize = 9, Align = TextAnchor.MiddleCenter, Color = "0.5 0.4 0.2 1" }
+                        new CuiTextComponent { Text = "RustDuckBot v1.4.3 | /db help | AI: DuckBot", FontSize = 9, Align = TextAnchor.MiddleCenter, Color = "0.5 0.4 0.2 1" }
                     }
                 });
 
@@ -927,65 +930,87 @@ namespace Oxide.Plugins
 
         private void Init()
         {
+            if (_config == null) _config = new ConfigData();
+            RegisterDuckBotCommands();
+
             try
             {
-                if (_config == null) _config = new ConfigData();
-            _agentBridge = new AgentBridge(_config.AgentProvider, _config.AgentConfig);
-            _localAI = new LocalAIBridge(_config);
-            _mcpClient = new MCPClient(_config.MCPServerHost, _config.MCPServerPort, this);
+                _agentBridge = new AgentBridge(_config.AgentProvider, _config.AgentConfig);
+                _localAI = new LocalAIBridge(_config);
+                _mcpClient = new MCPClient(_config.MCPServerHost, _config.MCPServerPort, this);
 
-            // Permissions
-            permission.RegisterPermission("rustduckbot.use", this);
-            permission.RegisterPermission("rustduckbot.vip", this);
-            permission.RegisterPermission("rustduckbot.mod", this);
-            permission.RegisterPermission("rustduckbot.admin", this);
-            permission.RegisterPermission("rustduckbot.security", this);
-            permission.RegisterPermission("rustduckbot.automation", this);
-            permission.RegisterPermission("rustduckbot.trading", this);
-            permission.RegisterPermission("rustduckbot.intel", this);
-            permission.RegisterPermission("rustduckbot.teleport", this);
-            permission.RegisterPermission("rustduckbot.moderation", this);
-            permission.RegisterPermission("rustduckbot.afk", this);
-            permission.RegisterPermission("rustduckbot.economy", this);
+                // Permissions
+                permission.RegisterPermission("rustduckbot.use", this);
+                permission.RegisterPermission("rustduckbot.vip", this);
+                permission.RegisterPermission("rustduckbot.mod", this);
+                permission.RegisterPermission("rustduckbot.admin", this);
+                permission.RegisterPermission("rustduckbot.security", this);
+                permission.RegisterPermission("rustduckbot.automation", this);
+                permission.RegisterPermission("rustduckbot.trading", this);
+                permission.RegisterPermission("rustduckbot.intel", this);
+                permission.RegisterPermission("rustduckbot.teleport", this);
+                permission.RegisterPermission("rustduckbot.moderation", this);
+                permission.RegisterPermission("rustduckbot.afk", this);
+                permission.RegisterPermission("rustduckbot.economy", this);
 
-            // Chat commands - all under /db
-            cmd.AddChatCommand("duckbot", this, nameof(CmdDuckBot));
-            cmd.AddChatCommand("db", this, nameof(CmdDuckBot));
+                // Subscribe to hooks
+                Subscribe(nameof(OnPlayerConnected));
+                Subscribe(nameof(OnPlayerDisconnected));
+                Subscribe(nameof(OnEntityTakeDamage));
+                Subscribe(nameof(OnPlayerAttacked));
+                Subscribe(nameof(OnDoorOpened));
+                Subscribe(nameof(OnDoorClosed));
+                Subscribe(nameof(OnExplosion));
+                Subscribe(nameof(OnPlayerChat));
+                // CCTV / Computer Station hooks
+                Subscribe(nameof(OnCCTVCameraUsed));
+                Subscribe(nameof(OnComputerStationUse));
+                Subscribe(nameof(OnPlayerInput));
+                Subscribe(nameof(CanClientMove));
+                // New hooks for features
+                Subscribe(nameof(OnPlayerSleep));
+                Subscribe(nameof(OnPlayerSleepEnded));
+                Subscribe(nameof(OnEntityDeath));
+                Subscribe(nameof(OnPlayerRespawned));
 
-            // Subscribe to hooks
-            Subscribe(nameof(OnPlayerConnected));
-            Subscribe(nameof(OnPlayerDisconnected));
-            Subscribe(nameof(OnEntityTakeDamage));
-            Subscribe(nameof(OnPlayerAttacked));
-            Subscribe(nameof(OnDoorOpened));
-            Subscribe(nameof(OnDoorClosed));
-            Subscribe(nameof(OnExplosion));
-            Subscribe(nameof(OnPlayerChat));
-            // CCTV / Computer Station hooks
-            Subscribe(nameof(OnCCTVCameraUsed));
-            Subscribe(nameof(OnComputerStationUse));
-            Subscribe(nameof(OnPlayerInput));
-            Subscribe(nameof(CanClientMove));
-            // New hooks for features
-            Subscribe(nameof(OnPlayerSleep));
-            Subscribe(nameof(OnPlayerSleepEnded));
-            Subscribe(nameof(OnEntityDeath));
-            Subscribe(nameof(OnPlayerRespawned));
+                // Initialize monument camera codes
+                InitializeMonumentCodes();
+                InitializeKitDefinitions();
+                InitializeItemPrices();
+                InitializeBuildingPlans();
 
-            // Initialize monument camera codes
-            InitializeMonumentCodes();
-            InitializeKitDefinitions();
-            InitializeItemPrices();
-            InitializeBuildingPlans();
-
-            PrintAsh("<color=#FFD700>RustDuckBot v1.4.3</color> loaded. Computer Station: <color=#00FF00>ENABLED</color> | Chat Panel: <color=#00FF00>ENABLED</color>");
-            var aiMode = _config.AgentProvider == "duckbot" ? $"DuckBot MCP ({_config.AgentConfig})" : $"Local AI: {_config.AgentProvider}";
-            PrintAsh($"AI: <color=#FFD700>{aiMode}</color> | MCP: ws://{_config.MCPServerHost}:{_config.MCPServerPort}");
+                _initFailed = false;
+                _initError = null;
+                PrintAsh("<color=#FFD700>RustDuckBot v1.4.3</color> loaded. Computer Station: <color=#00FF00>ENABLED</color> | Chat Panel: <color=#00FF00>ENABLED</color>");
+                var aiMode = _config.AgentProvider == "duckbot" ? $"DuckBot MCP ({_config.AgentConfig})" : $"Local AI: {_config.AgentProvider}";
+                PrintAsh($"AI: <color=#FFD700>{aiMode}</color> | MCP: ws://{_config.MCPServerHost}:{_config.MCPServerPort}");
             }
             catch (Exception ex)
             {
-                PrintError($"[RustDuckBot] Init failed: {ex.Message}\n{ex.StackTrace}");
-                throw;
+                _initFailed = true;
+                _initError = ex.Message;
+                PrintError($"[RustDuckBot] Init failed after DuckBot command registration; commands remain in recovery mode: {ex.Message}\n{ex.StackTrace}");
+            }
+        }
+
+        private void RegisterDuckBotCommands()
+        {
+            if (_commandsRegistered) return;
+
+            TryRegisterChatCommand("duckbot");
+            TryRegisterChatCommand("db");
+            _commandsRegistered = true;
+        }
+
+        private void TryRegisterChatCommand(string commandName)
+        {
+            try
+            {
+                cmd.AddChatCommand(commandName, this, nameof(CmdDuckBot));
+            }
+            catch (Exception ex)
+            {
+                PrintWarning($"[RustDuckBot] Could not manually register /{commandName}; attribute registration may still handle it. {ex.Message}");
             }
         }
 
@@ -1019,42 +1044,54 @@ namespace Oxide.Plugins
 
         private void OnServerInitialized()
         {
-            _serverInitialized = true;
-            _ = _mcpClient.ConnectAsync();
-
-            if (_config.EnableWebSocketRCON && !string.IsNullOrEmpty(_config.RCONPassword))
+            try
             {
-                _rconClient = new WSRCONClient("127.0.0.1", _config.RCONPort, _config.RCONPassword, this);
-                _ = _rconClient.ConnectAsync();
+                if (_config == null) _config = new ConfigData();
+
+                _serverInitialized = true;
+                if (_mcpClient != null) _ = _mcpClient.ConnectAsync();
+                else PrintWarning("[RustDuckBot] MCP client was not initialized; DuckBot chat commands remain available without MCP until reload.");
+
+                if (_config.EnableWebSocketRCON && !string.IsNullOrEmpty(_config.RCONPassword))
+                {
+                    _rconClient = new WSRCONClient("127.0.0.1", _config.RCONPort, _config.RCONPassword, this);
+                    _ = _rconClient.ConnectAsync();
+                }
+
+                ScanCameras();
+                ScanBases();
+                ScanVendingMachines();
+
+                // Heartbeat every 30s
+                _heartbeatTimer = new Timer(HeartbeatCallback, null, 30000, 30000);
+
+                // Automation every 60s
+                _automationTimer = new Timer(AutomationCallback, null, 60000, 60000);
+
+                // Decay check every 5 min
+                _decayTimer = new Timer(DecayCheckCallback, null, 300000, 300000);
+
+                // Radar sweep every 10s
+                _radarTimer = new Timer(RadarCallback, null, 10000, 10000);
+
+                // AFK check every 30s
+                _afkCheckTimer = new Timer(AFKCheckCallback, null, 30000, 30000);
+
+                // Auto-save every 5 min
+                _autoSaveTimer = new Timer(AutoSaveCallback, null, 300000, 300000);
+
+                // Load persisted data
+                LoadData();
+
+                SendServerStatus();
+                LogActivity("system", "Server initialized", $"RustDuckBot v1.4.3 started. Cameras: {_cameras.Count}");
             }
-
-            ScanCameras();
-            ScanBases();
-            ScanVendingMachines();
-
-            // Heartbeat every 30s
-            _heartbeatTimer = new Timer(HeartbeatCallback, null, 30000, 30000);
-
-            // Automation every 60s
-            _automationTimer = new Timer(AutomationCallback, null, 60000, 60000);
-
-            // Decay check every 5 min
-            _decayTimer = new Timer(DecayCheckCallback, null, 300000, 300000);
-
-            // Radar sweep every 10s
-            _radarTimer = new Timer(RadarCallback, null, 10000, 10000);
-
-            // AFK check every 30s
-            _afkCheckTimer = new Timer(AFKCheckCallback, null, 30000, 30000);
-
-            // Auto-save every 5 min
-            _autoSaveTimer = new Timer(AutoSaveCallback, null, 300000, 300000);
-
-            // Load persisted data
-            LoadData();
-
-            SendServerStatus();
-            LogActivity("system", "Server initialized", $"RustDuckBot v1.4.2 started. Cameras: {_cameras.Count}");
+            catch (Exception ex)
+            {
+                _initFailed = true;
+                _initError = ex.Message;
+                PrintError($"[RustDuckBot] Server initialization failed; DuckBot chat commands remain in recovery mode: {ex.Message}\n{ex.StackTrace}");
+            }
         }
 
         private void OnPlayerConnected(BasePlayer player)
@@ -1076,7 +1113,7 @@ namespace Oxide.Plugins
 
             // Automation: welcome message
             var welcomeRule = _automationRules.Find(r => r.Name == "Welcome" && r.Enabled);
-            if (welcomeRule != null)
+            if (welcomeRule != null && _agentBridge != null)
             {
                 var welcome = _agentBridge.GetResponse(player.displayName, session.Role, "welcome_message", null);
                 PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {welcome}");
@@ -1214,14 +1251,14 @@ namespace Oxide.Plugins
         {
             if (player == null || station == null) return null;
 
-            var session = GetOrCreateSession(player);
-            session.TerminalOpen = true;
-            session.Station = station;
-            session.SessionStart = DateTime.UtcNow;
-            _computerSessions[player.userID] = session;
+            GetOrCreateSession(player);
+            var stationSession = GetCameraSession(player.userID);
+            stationSession.TerminalOpen = true;
+            stationSession.Station = station;
+            stationSession.SessionStart = DateTime.UtcNow;
 
             // Notify AI agent
-            _ = _agentBridge.SendToAgentAsync(new
+            _ = _agentBridge?.SendToAgentAsync(new
             {
                 type = "computer_station_open",
                 playerId = player.UserIDString,
@@ -1262,10 +1299,10 @@ namespace Oxide.Plugins
         {
             if (player == null) return;
 
-            var session = GetOrCreateSession(player);
+            GetOrCreateSession(player);
+            var session = GetCameraSession(player.userID);
             session.IsWatchingCCTV = true;
             session.Station = station;
-            _computerSessions[player.userID] = session;
 
             string cameraId = camera?.net?.ID.Value.ToString() ?? "unknown";
             string cameraName = GetCameraDisplayName(camera, cameraId);
@@ -1280,7 +1317,7 @@ namespace Oxide.Plugins
                 PrintAsh($"[CCTV] {player.displayName} → viewing camera {cameraName} (ID: {cameraId})");
 
                 // Notify AI agent of camera switch
-                _ = _agentBridge.SendToAgentAsync(new
+                _ = _agentBridge?.SendToAgentAsync(new
                 {
                     type = "camera_viewed",
                     playerId = player.UserIDString,
@@ -1315,7 +1352,7 @@ namespace Oxide.Plugins
             if (input.WasJustPressed(BUTTON.JUMP))
             {
                 PrintAsh($"[CCTV] {player.displayName} cycled to NEXT camera");
-                _ = _agentBridge.SendToAgentAsync(new
+                _ = _agentBridge?.SendToAgentAsync(new
                 {
                     type = "cctv_cycle",
                     playerId = player.UserIDString,
@@ -1325,7 +1362,7 @@ namespace Oxide.Plugins
             else if (input.WasJustPressed(BUTTON.DUCK))
             {
                 PrintAsh($"[CCTV] {player.displayName} cycled to PREVIOUS camera");
-                _ = _agentBridge.SendToAgentAsync(new
+                _ = _agentBridge?.SendToAgentAsync(new
                 {
                     type = "cctv_cycle",
                     playerId = player.UserIDString,
@@ -1372,7 +1409,7 @@ namespace Oxide.Plugins
                 if (ContainsIgnoreCase(cameraId, code))
                 {
                     PrintAsh($"[CCTV] Monument camera detected: <color=#00FF00>{code}</color> by {player.displayName}");
-                    _ = _agentBridge.SendToAgentAsync(new
+                    _ = _agentBridge?.SendToAgentAsync(new
                     {
                         type = "monument_camera",
                         playerId = player.UserIDString,
@@ -1435,7 +1472,15 @@ namespace Oxide.Plugins
         // Get current camera session for a player
         private ComputerStationSession GetCameraSession(ulong playerId)
         {
-            _computerSessions.TryGetValue(playerId, out var session);
+            if (!_computerSessions.TryGetValue(playerId, out var session))
+            {
+                session = new ComputerStationSession
+                {
+                    PlayerId = playerId,
+                    SessionStart = DateTime.UtcNow
+                };
+                _computerSessions[playerId] = session;
+            }
             return session;
         }
 
@@ -1726,7 +1771,9 @@ namespace Oxide.Plugins
 
         private string GetPlayerRole(BasePlayer player)
         {
-            foreach (var adminId in _config.AdminSteamIds)
+            if (_config == null) _config = new ConfigData();
+            var adminIds = _config.AdminSteamIds ?? Array.Empty<string>();
+            foreach (var adminId in adminIds)
                 if (player.UserIDString == adminId) return "admin";
             if (player.IsAdmin) return "admin";
             if (permission.UserHasPermission(player.UserIDString, "rustduckbot.admin")) return "admin";
@@ -1823,33 +1870,37 @@ namespace Oxide.Plugins
         // MAIN COMMAND HANDLER
         // =====================================================================
 
+        [ChatCommand("db")]
         private void CmdDuckBot(BasePlayer player, string command, string[] args)
         {
             if (player == null) return;
             try
             {
-            LogDuckBotDebug($"CmdDuckBot player={player.displayName} command={command} args={args?.Length ?? 0}");
+                if (_config == null) _config = new ConfigData();
+                if (args == null) args = Array.Empty<string>();
+                LogDuckBotDebug($"CmdDuckBot player={player.displayName} command={command} args={args?.Length ?? 0}");
 
-            var session = GetOrCreateSession(player);
-            session.IsAtComputerStation = IsPlayerAtComputerStation(player);
-            session.LastPosition = new Position3D(player.transform.position);
+                var session = GetOrCreateSession(player);
+                session.IsAtComputerStation = IsPlayerAtComputerStation(player);
+                session.LastPosition = new Position3D(player.transform.position);
 
-            // Track command usage
-            TrackCommand("duckbot");
+                // Track command usage
+                TrackCommand("duckbot");
 
-            if (args.Length == 0)
-            {
-                ShowTerminal(player, session);
-                return;
-            }
+                if (args.Length == 0)
+                {
+                    if (_initFailed) ShowRecoveryNotice(player);
+                    ShowTerminal(player, session);
+                    return;
+                }
 
-            var subCmd = args[0].ToLowerInvariant();
-            var argStr = args.Length > 1 ? string.Join(" ", args, 1, args.Length - 1) : "";
-            var fullMessage = subCmd + (string.IsNullOrEmpty(argStr) ? "" : " " + argStr);
+                var subCmd = args[0].ToLowerInvariant();
+                var argStr = args.Length > 1 ? string.Join(" ", args, 1, args.Length - 1) : "";
+                var fullMessage = subCmd + (string.IsNullOrEmpty(argStr) ? "" : " " + argStr);
 
-            // Route to handlers
-            switch (subCmd)
-            {
+                // Route to handlers
+                switch (subCmd)
+                {
                 // === HELP & INFO ===
                 case "help": case "h": ShowHelp(player, session); break;
                 case "terminal": case "term": case "t": ShowTerminal(player, session); break;
@@ -2057,7 +2108,7 @@ namespace Oxide.Plugins
                     // Treat as AI chat
                     HandleAIChat(player, session, fullMessage);
                     break;
-            }
+                }
             }
             catch (System.Exception ex)
             {
@@ -2070,10 +2121,19 @@ namespace Oxide.Plugins
         // HELP & INFO
         // =====================================================================
 
+        private void ShowRecoveryNotice(BasePlayer player)
+        {
+            if (!_initFailed) return;
+            var detail = string.IsNullOrEmpty(_initError) ? "check Oxide console logs" : _initError;
+            PrintToChat(player, "<color=#FF9900>DuckBot loaded in recovery mode.</color> Command routing is alive, but some AI, MCP, RCON, or automation features may be offline.");
+            PrintToChat(player, "<color=#888>Startup error:</color> " + detail);
+        }
+
         private void ShowHelp(BasePlayer player, PlayerSession session)
         {
+            ShowRecoveryNotice(player);
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
-            PrintToChat(player, "<color=#FFD700>      RUSSDUCKBOT v1.4.2 — HELP</color>");
+            PrintToChat(player, "<color=#FFD700>      RUSTDUCKBOT v1.4.3 - HELP</color>");
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
             PrintToChat(player, "<color=#FFD700>/db terminal</color> — Open AI computer terminal");
             PrintToChat(player, "<color=#FFD700>/db help</color> — Show this help");
@@ -2218,7 +2278,7 @@ namespace Oxide.Plugins
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
             PrintToChat(player, "<color=#FFD700>      SERVER INFORMATION</color>");
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
-            PrintToChat(player, $"<color=#FFD700>Plugin:</color> RustDuckBot v1.4.2");
+            PrintToChat(player, $"<color=#FFD700>Plugin:</color> RustDuckBot v1.4.3");
             var aiProvider = _config.AgentProvider;
             var aiDetail = aiProvider == "duckbot" ? $"{_config.AgentConfig}" : (aiProvider == "lmstudio" ? $"{_config.LMStudioUrl}/{_config.LMStudioModel}" : _config.OpenAIBaseUrl + "/" + _config.OpenAIModel);
             PrintToChat(player, $"<color=#FFD700>AI Mode:</color> {aiProvider} — {aiDetail}");
@@ -2394,7 +2454,7 @@ namespace Oxide.Plugins
             }
 
             // Show monitored bases
-            var myBases = _monitoredBases.Where(b => b.OwnerId == player.UserIDString || b.AuthorizedPlayers.Contains(player.UserIDString)).ToList();
+            var myBases = _monitoredBases.Where(b => b.OwnerId == player.userID || b.AuthorizedPlayers.Contains(player.UserIDString)).ToList();
             if (myBases.Count > 0)
             {
                 PrintToChat(player, $"\n<color=#FFD700>Your Bases:</color> {myBases.Count}");
@@ -2587,7 +2647,7 @@ namespace Oxide.Plugins
 
         private void ShowBaseInfo(BasePlayer player, PlayerSession session, string args)
         {
-            var bases = _monitoredBases.Where(b => b.OwnerId == player.UserIDString || b.AuthorizedPlayers.Contains(player.UserIDString)).ToList();
+            var bases = _monitoredBases.Where(b => b.OwnerId == player.userID || b.AuthorizedPlayers.Contains(player.UserIDString)).ToList();
             if (bases.Count == 0) { PrintToChat(player, "No bases found. Use /db scan to add bases to monitoring."); return; }
 
             PrintToChat(player, $"<color=#9B59B6>═══ YOUR BASES ({bases.Count}) ═══</color>");
@@ -2867,7 +2927,8 @@ namespace Oxide.Plugins
             var target = FindPlayer(targetName);
             if (target == null) { PrintToChat(player, $"Player not found: {targetName}"); return; }
 
-            var tracked = _trackedPlayers.GetValueOrDefault(target.UserIDString);
+            TrackedPlayer tracked;
+            _trackedPlayers.TryGetValue(target.UserIDString, out tracked);
             var pSession = GetOrCreateSession(target);
 
             PrintToChat(player, $"<color=#1ABC9C>═══ PLAYER: {target.displayName} ═══</color>");
@@ -2944,7 +3005,8 @@ namespace Oxide.Plugins
             var target = FindPlayer(name);
             if (target == null) { PrintToChat(player, $"Player not found: {name}"); return; }
 
-            var tracked = _trackedPlayers.GetValueOrDefault(target.UserIDString);
+            TrackedPlayer tracked;
+            _trackedPlayers.TryGetValue(target.UserIDString, out tracked);
             var kd = tracked != null && tracked.Deaths > 0 ? (tracked.Kills / (float)tracked.Deaths).ToString("F2") : (tracked?.Kills.ToString() ?? "0");
             PrintToChat(player, $"<color=#1ABC9C>═══ STATS: {target.displayName} ═══</color>");
             PrintToChat(player, $"Kills: {tracked?.Kills ?? 0}");
@@ -2988,7 +3050,7 @@ namespace Oxide.Plugins
         private void PlaceMarker(BasePlayer player, PlayerSession session, string args)
         {
             if (string.IsNullOrWhiteSpace(args)) { PrintToChat(player, "Usage: /db mark <name> [color] [icon]"); return; }
-            var parts = args.Split(' ', 3);
+            var parts = SplitArgs(args, 3);
 
             var marker = new GridMarker
             {
@@ -3091,7 +3153,7 @@ namespace Oxide.Plugins
         {
             if (!HasRoleOrHigher(session.Role, "mod")) { PrintToChat(player, "<color=#FF4444>Mod+ required</color>"); return; }
 
-            var parts = args.Split(' ', 3);
+            var parts = SplitArgs(args, 3);
             if (parts.Length < 2) { PrintToChat(player, "Usage: /db rule <rule_id> enable/disable/delete/run"); return; }
 
             var ruleId = parts[0];
@@ -3152,15 +3214,20 @@ namespace Oxide.Plugins
             string response;
 
             // Route to the right AI backend
-            if (_localAI.IsLocalProvider)
+            if (_localAI != null && _localAI.IsLocalProvider)
             {
                 // Direct LM Studio / OpenAI / Anthropic / OpenRouter
                 response = _localAI.GetResponse(player.displayName, session.Role, message, session.ChatHistory);
             }
-            else
+            else if (_agentBridge != null)
             {
                 // DuckBot MCP / agent bridge
                 response = _agentBridge.GetResponse(player.displayName, session.Role, message, session.ChatHistory);
+            }
+            else
+            {
+                ShowRecoveryNotice(player);
+                response = "AI backend is not initialized yet. Ask an admin to check the Oxide console and reload RustDuckBot after fixing the startup error.";
             }
 
             session.ChatHistory.Add(new ChatEntry { Sender = "DuckBot", Message = response, Time = DateTime.Now, IsAI = true });
@@ -3194,13 +3261,20 @@ namespace Oxide.Plugins
             PrintToChat(player, "2. Monitor decay on your base");
             PrintToChat(player, "3. Keep tracking raider activity");
             PrintToChat(player, "4. Use /db analyze for detailed base analysis");
-            var response = _agentBridge.GetResponse(player.displayName, session.Role, "recommendations_for_player", null);
-            PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {response}");
+            if (_agentBridge != null)
+            {
+                var response = _agentBridge.GetResponse(player.displayName, session.Role, "recommendations_for_player", null);
+                PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {response}");
+            }
+            else
+            {
+                PrintToChat(player, "<color=#888>AI recommendations are offline until DuckBot finishes initialization.</color>");
+            }
         }
 
         private void AnalyzeBase(BasePlayer player, PlayerSession session)
         {
-            var bases = _monitoredBases.Where(b => b.OwnerId == player.UserIDString).ToList();
+            var bases = _monitoredBases.Where(b => b.OwnerId == player.userID).ToList();
             PrintToChat(player, "<color=#FFD700>═══ BASE ANALYSIS ═══</color>");
             if (bases.Count == 0) { PrintToChat(player, "No monitored bases. Use /db scan to add them."); return; }
 
@@ -3430,7 +3504,7 @@ namespace Oxide.Plugins
         private void HandleGive(BasePlayer player, PlayerSession session, string args)
         {
             if (!HasRoleOrHigher(session.Role, "admin")) { PrintToChat(player, "<color=#FF4444>Admin required</color>"); return; }
-            var parts = args.Split(' ', 3);
+            var parts = SplitArgs(args, 3);
             if (parts.Length < 2) { PrintToChat(player, "Usage: /db give <player> <item> <qty>"); return; }
             var target = FindPlayer(parts[0]);
             if (target == null) { PrintToChat(player, $"Player not found: {parts[0]}"); return; }
@@ -3525,11 +3599,11 @@ namespace Oxide.Plugins
             if (string.IsNullOrWhiteSpace(args) || args == "list")
             {
                 PrintToChat(player, "<color=#FFD700>━━━ BUILDING PLANS ━━━</color>");
-                foreach (var plan in _buildingPlans)
+                foreach (var listedPlan in _buildingPlans)
                 {
-                    var emoji = plan.Category == "base" ? "🏠" : plan.Category == "farm" ? "🌾" : plan.Category == "defense" ? "🛡" : "✨";
-                    PrintToChat(player, "  " + emoji + " <color=#4DA6FF>" + plan.Name + "</color> -- " + plan.Description);
-                    PrintToChat(player, "       Upkeep: " + plan.TotalUpkeep + "/day | Components: " + plan.Components.Sum(c => c.Count));
+                    var emoji = listedPlan.Category == "base" ? "🏠" : listedPlan.Category == "farm" ? "🌾" : listedPlan.Category == "defense" ? "🛡" : "✨";
+                    PrintToChat(player, "  " + emoji + " <color=#4DA6FF>" + listedPlan.Name + "</color> -- " + listedPlan.Description);
+                    PrintToChat(player, "       Upkeep: " + listedPlan.TotalUpkeep + "/day | Components: " + listedPlan.Components.Sum(c => c.Count));
                 }
                 PrintToChat(player, "\n<color=#888>/db plan <name> for materials breakdown</color>");
                 return;
@@ -3657,7 +3731,14 @@ namespace Oxide.Plugins
             var mins = (int)time.TotalMinutes % 60;
             PrintToChat(player, "<color=#FFD700>═══ GAME TIME ═══</color>");
             PrintToChat(player, $"Time: {hours:D2}:{mins:D2}");
-            PrintToChat(player, $"Day: {World.Timeframes.GetValueOrDefault("day", 1)}");
+            var day = 1;
+            try
+            {
+                if (World.Timeframes != null && World.Timeframes.ContainsKey("day"))
+                    day = World.Timeframes["day"];
+            }
+            catch { }
+            PrintToChat(player, $"Day: {day}");
             PrintToChat(player, $"Sun: {(hours >= 6 && hours < 18 ? "☀️" : "🌙")}");
         }
 
@@ -3987,11 +4068,11 @@ namespace Oxide.Plugins
 
                 // Cancel if player moves during warmup — hook will catch it
                 session._pendingTeleport = true;
-                session._teleportDestination = destination;
+                session._teleportDestination = new Position3D(destination);
                 session._teleportReason = reason;
                 session._teleportStartPos = new Position3D(player.transform.position);
 
-                timer.Once(_config.TeleportWarmupSeconds * 1000f, () =>
+                timer.Once(_config.TeleportWarmupSeconds, () =>
                 {
                     if (session._pendingTeleport && player.IsConnected())
                     {
@@ -4768,7 +4849,7 @@ namespace Oxide.Plugins
         // MISC
         // =====================================================================
 
-        private void ShowVersion(BasePlayer player) { PrintToChat(player, "<color=#FFD700>RustDuckBot v1.4.2</color> by Duckets | AI: " + (_localAI?.ProviderName ?? _config.AgentProvider) + " MCP Bridge"); }
+        private void ShowVersion(BasePlayer player) { PrintToChat(player, "<color=#FFD700>RustDuckBot v1.4.3</color> by Duckets | AI: " + (_localAI?.ProviderName ?? _config.AgentProvider) + " MCP Bridge"); }
         private void ShowCredits(BasePlayer player) { PrintToChat(player, "Created by <color=#FFD700>Duckets</color> | Powered by <color=#FFD700>DuckBot AI</color>"); }
         private void ShowChangelog(BasePlayer player) { PrintToChat(player, "v1.4.0: Massive feature expansion — 30 new commands across 7 categories"); }
         private void ShowDonateInfo(BasePlayer player) { PrintToChat(player, "Donations help keep the server running! Contact admin."); }
@@ -4809,7 +4890,7 @@ namespace Oxide.Plugins
 
                 var cam = new CameraInfo
                 {
-                    Id = entity.net?.ID?.Value.ToString() ?? entity.GetHashCode().ToString(),
+                    Id = entity.net != null ? entity.net.ID.Value.ToString() : entity.GetHashCode().ToString(),
                     Name = GetCameraName(entity),
                     Location = GetCameraLocation(entity),
                     Monument = GetNearestMonument(entity.transform.position),
@@ -4962,6 +5043,31 @@ namespace Oxide.Plugins
                 if (ContainsIgnoreCase(p.displayName, nameOrId)) best = p;
             }
             return best;
+        }
+
+        private BasePlayer FindPlayerByName(string nameOrId)
+        {
+            return FindPlayer(nameOrId);
+        }
+
+        private string[] SplitArgs(string args, int count)
+        {
+            if (string.IsNullOrWhiteSpace(args)) return Array.Empty<string>();
+            if (count <= 1) return new[] { args.Trim() };
+
+            var parts = new List<string>();
+            var remaining = args.Trim();
+            for (var i = 1; i < count && remaining.Length > 0; i++)
+            {
+                var splitAt = remaining.IndexOf(' ');
+                if (splitAt < 0) break;
+
+                parts.Add(remaining.Substring(0, splitAt));
+                remaining = remaining.Substring(splitAt + 1).TrimStart();
+            }
+
+            if (remaining.Length > 0) parts.Add(remaining);
+            return parts.ToArray();
         }
 
         // =====================================================================
@@ -5646,7 +5752,7 @@ namespace Oxide.Plugins
                     OnlineTime = ps.OnlineTime, LastSeen = ps.LastSeen,
                     PlayerNotes = new Dictionary<string, string>(ps.PlayerNotes),
                     CurrentKillstreak = ps.CurrentKillstreak, LastKillTime = ps.LastKillTime,
-                    LastDailyReward = ps.LastDailyReward, TotalScrap = ps.TotalScrap, Balance = ps.Balance,
+                    LastDailyReward = ps.LastDailyReward ?? DateTime.MinValue, TotalScrap = ps.TotalScrap, Balance = ps.Balance,
                     Permissions = ps.Permissions.ToList(), Bookmarks = ps.Bookmarks.ToList()
                 };
             }
@@ -5661,7 +5767,7 @@ namespace Oxide.Plugins
             foreach (var g in _groups)
                 data.Groups.Add(new GroupData { Id = g.Value.Id, Name = g.Value.Name, LeaderId = g.Value.LeaderId, MemberIds = g.Value.Members.ToList(), SharedHomes = g.Value.SharedHomes.ToDictionary(h => h.Key, h => new PositionData(h.Value.X, h.Value.Y, h.Value.Z)), Created = g.Value.Created });
             foreach (var kvp in _trackedPlayers)
-                data.TrackedPlayers[kvp.Key] = new TrackedPlayerData { UserId = kvp.Value.UserId, DisplayName = kvp.Value.DisplayName, Kills = kvp.Value.Kills, Deaths = kvp.Value.Deaths, LastSeen = kvp.Value.LastSeen };
+                data.TrackedPlayers[kvp.Key] = new TrackedPlayerData { UserId = kvp.Value.PlayerId, DisplayName = kvp.Value.DisplayName, Kills = kvp.Value.Kills, Deaths = kvp.Value.Deaths, LastSeen = kvp.Value.LastSeen };
             Interface.Oxide.DataFileSystem.WriteObject("DuckBotData", data);
             PrintAsh($"[Data] Saved {data.PlayerSessions.Count} sessions, {_groups.Count} groups, {_activityLog.Count} activity entries");
         }
@@ -5671,7 +5777,7 @@ namespace Oxide.Plugins
             var data = Interface.Oxide.DataFileSystem.ReadObject<DuckBotData>("DuckBotData");
             if (data == null) return;
             foreach (var kvp in data.TrackedPlayers)
-                if (!_trackedPlayers.ContainsKey(kvp.Key)) _trackedPlayers[kvp.Key] = new TrackedPlayer { UserId = kvp.Value.UserId, DisplayName = kvp.Value.DisplayName, Kills = kvp.Value.Kills, Deaths = kvp.Value.Deaths, LastSeen = kvp.Value.LastSeen, LastTrackTime = DateTime.Now };
+                if (!_trackedPlayers.ContainsKey(kvp.Key)) _trackedPlayers[kvp.Key] = new TrackedPlayer { PlayerId = kvp.Value.UserId, DisplayName = kvp.Value.DisplayName, Kills = kvp.Value.Kills, Deaths = kvp.Value.Deaths, LastSeen = kvp.Value.LastSeen, FirstSeen = kvp.Value.LastSeen };
             foreach (var e in data.ActivityLog.Take(_config.MaxActivityLog))
                 _activityLog.Add(new ActivityEntry { Time = e.Time, Category = e.Category, Action = e.Action, Details = e.Details, PlayerId = e.PlayerId, PlayerName = e.PlayerName });
             _alertHistory = data.AlertHistory.Select(a => new AlertEntry { Id = a.Id, Type = a.Type, Severity = a.Severity, Title = a.Title, Message = a.Message, Time = a.Time, Acknowledged = a.Acknowledged, AcknowledgedBy = a.AcknowledgedBy, AcknowledgedAt = a.AcknowledgedAt }).ToList();
@@ -5728,7 +5834,7 @@ namespace Oxide.Plugins
             {
                 attackerSession.TotalScrap += rewards[mi];
                 PrintToChat(attacker, $"<color=#FFD700>⚔ Killstreak {attackerSession.CurrentKillstreak}!</color> Earned <color=#FF9900>+{rewards[mi]} scrap</color>");
-                _ = _agentBridge.SendToAgentAsync(new { type = "killstreak_reward", playerId = attacker.UserIDString, playerName = attacker.displayName, streak = attackerSession.CurrentKillstreak, reward = rewards[mi], milestone = milestones[mi], timestamp = DateTime.UtcNow.ToString("O") });
+                _ = _agentBridge?.SendToAgentAsync(new { type = "killstreak_reward", playerId = attacker.UserIDString, playerName = attacker.displayName, streak = attackerSession.CurrentKillstreak, reward = rewards[mi], milestone = milestones[mi], timestamp = DateTime.UtcNow.ToString("O") });
                 LogActivity("pvp", "Killstreak", $"{attacker.displayName} reached streak {attackerSession.CurrentKillstreak} (milestone {milestones[mi]})", attacker.UserIDString, attacker.displayName);
             }
             if (victimSession.CurrentKillstreak >= 5) PrintToChat(victim, $"<color=#888>Your killstreak of {victimSession.CurrentKillstreak} was ended.</color>");
@@ -5756,7 +5862,7 @@ namespace Oxide.Plugins
                     var sub = BasePlayer.Find(sid.ToString());
                     if (sub != null && sub.IsConnected()) PrintToChat(sub, $"<color=#FF4444>⚠ RAID ALERT:</color> {attacker.displayName} is raiding near {grid} ({monument})");
                 }
-                _ = _agentBridge.SendToAgentAsync(new { type = "raid_alert", attackerId = attacker.UserIDString, attackerName = attacker.displayName, victimId = victim.UserIDString, victimName = victim.displayName, gridCoord = grid, monument = monument, timestamp = DateTime.UtcNow.ToString("O") });
+                _ = _agentBridge?.SendToAgentAsync(new { type = "raid_alert", attackerId = attacker.UserIDString, attackerName = attacker.displayName, victimId = victim.UserIDString, victimName = victim.displayName, gridCoord = grid, monument = monument, timestamp = DateTime.UtcNow.ToString("O") });
                 LogActivity("security", "Raid detected", $"{attacker.displayName} raiding at {grid} ({monument})", attacker.UserIDString, attacker.displayName);
                 return;
             }
@@ -5782,13 +5888,13 @@ namespace Oxide.Plugins
             if (player == null) return;
             var session = GetOrCreateSession(player);
             var now = DateTime.Now;
-            if (session.LastDailyReward.Date < now.Date)
+            if (!session.LastDailyReward.HasValue || session.LastDailyReward.Value.Date < now.Date)
             {
                 session.TotalScrap += _config.DailyRewardScrap;
                 session.LastDailyReward = now;
                 timer.Once(1f, () => { if (player.IsConnected()) PrintToChat(player, $"<color=#00FF88>Welcome back! Daily reward: +{_config.DailyRewardScrap} scrap</color>"); });
             }
-            _ = _agentBridge.SendToAgentAsync(new { type = "player_respawned", playerId = player.UserIDString, playerName = player.displayName, position = GetGridCoord(player.transform.position), timestamp = DateTime.UtcNow.ToString("O") });
+            _ = _agentBridge?.SendToAgentAsync(new { type = "player_respawned", playerId = player.UserIDString, playerName = player.displayName, position = GetGridCoord(player.transform.position), timestamp = DateTime.UtcNow.ToString("O") });
         }
 
         private void HandleRaidAlert(BasePlayer player, PlayerSession session)
@@ -5801,7 +5907,7 @@ namespace Oxide.Plugins
 
         private void HandleGroup(BasePlayer player, PlayerSession session, string args)
         {
-            var argv = args.Split(' ', 3);
+            var argv = SplitArgs(args, 3);
             var action = argv.Length > 0 ? argv[0].ToLower() : "info";
             var arg1 = argv.Length > 1 ? argv[1] : "";
             switch (action)
@@ -5931,7 +6037,7 @@ namespace Oxide.Plugins
             session._teleportDestination = pos;
             session._teleportReason = $"group tp to {homeName}";
             PrintToChat(player, $"<color=#FFD700>Teleporting in {_config.TeleportWarmupSeconds}s... Don't move.</color>");
-            timer.Once(_config.TeleportWarmupSeconds * 1000f, () => { if (session._pendingTeleport) { session._pendingTeleport = false; player.Teleport(pos.ToVector3()); PrintToChat(player, $"<color=#00FF88>Teleported to group home '{homeName}'.</color>"); } });
+            timer.Once(_config.TeleportWarmupSeconds, () => { if (session._pendingTeleport) { session._pendingTeleport = false; player.Teleport(pos.ToVector3()); PrintToChat(player, $"<color=#00FF88>Teleported to group home '{homeName}'.</color>"); } });
         }
 
         private void HandleGroupInfo(BasePlayer player, PlayerSession session)
@@ -6123,7 +6229,7 @@ namespace Oxide.Plugins
                     var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
                     try
                     {
-                        var msg = Json.Deserialize(json) as Dictionary<string, object>;
+                        var msg = SimpleJson.Deserialize(json) as Dictionary<string, object>;
                         if (msg != null)
                         {
                             var msgType = msg.ContainsKey("type") ? Convert.ToString(msg["type"]) : "unknown";
@@ -6260,7 +6366,7 @@ namespace Oxide.Plugins
             }
         }
 
-        public string GetResponse(string playerName, string role, string message, List<object> history)
+        public string GetResponse(string playerName, string role, string message, List<RustDuckBot.ChatEntry> history)
         {
             var lower = message.ToLower();
 
@@ -6398,8 +6504,7 @@ namespace Oxide.Plugins
                 var raw = wb.UploadString(ChatCompletionsUrl(_lmUrl), "POST",
                     SimpleJson.Serialize(new { model = _lmModel, messages = BuildMessages(message, history, _systemPrompt), max_tokens = 600, stream = false }));
 
-                dynamic resp = SimpleJson.Deserialize(raw);
-                var content = resp?["choices"]?[0]?["message"]?["content"];
+                var content = ExtractOpenAIContent(raw);
                 return content ?? "No response from local AI.";
             }
         }
@@ -6419,8 +6524,7 @@ namespace Oxide.Plugins
                 var raw = wb.UploadString(ChatCompletionsUrl(baseUrl), "POST",
                     SimpleJson.Serialize(new { model = model, messages = BuildMessages(message, history, _systemPrompt), max_tokens = 800 }));
 
-                dynamic resp = SimpleJson.Deserialize(raw);
-                var content = resp?["choices"]?[0]?["message"]?["content"];
+                var content = ExtractOpenAIContent(raw);
                 return content ?? "No response from AI.";
             }
         }
@@ -6448,13 +6552,38 @@ namespace Oxide.Plugins
                 var body = new { model = _openAiModel, max_tokens = 800, messages = msgs };
                 var raw = wb.UploadString("https://api.anthropic.com/v1/messages", "POST", SimpleJson.Serialize(body));
 
-                dynamic resp = SimpleJson.Deserialize(raw);
-                var content = resp?["content"]?[0]?["text"];
+                var content = ExtractAnthropicContent(raw);
                 return content ?? "No response from Claude.";
             }
         }
 
         // ── Helpers ─────────────────────────────────────────────────────────
+
+        private string ExtractOpenAIContent(string raw)
+        {
+            try
+            {
+                var root = Newtonsoft.Json.Linq.JObject.Parse(raw);
+                return root["choices"]?[0]?["message"]?["content"]?.ToString();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private string ExtractAnthropicContent(string raw)
+        {
+            try
+            {
+                var root = Newtonsoft.Json.Linq.JObject.Parse(raw);
+                return root["content"]?[0]?["text"]?.ToString();
+            }
+            catch
+            {
+                return null;
+            }
+        }
 
         private object[] BuildMessages(string message, List<RustDuckBot.ChatEntry> history, string system)
         {
