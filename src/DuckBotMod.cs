@@ -1162,7 +1162,7 @@ namespace Oxide.Plugins
 
                 // Raid detection
                 var dmg = info.damageTypes;
-                if (dmg != null && dmg.Count > 0)
+                if (dmg != null)
                 {
                     CreateAlert("raid", "high", "Explosion detected", $"Explosion near {target.displayName}'s position", entity.transform.position);
                     LogActivity("security", "Raid", $"Explosion: {attacker.displayName} vs {target.displayName}", attacker.UserIDString, attacker.displayName);
