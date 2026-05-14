@@ -1,8 +1,14 @@
 # RustDuckBot
 
-> **v1.4.6** — AI-powered in-game terminal for Rust. Runs with or without an AI agent.
+> **v1.4.5** — AI-powered in-game terminal for Rust. Runs with or without an AI agent.
 
-**⚠️ Note:** Due to Oxide.Compiler not exposing Rust game types (CCTVRCamera, ComputerStation, DamageType, etc.), all game hooks are disabled. The plugin loads and `/db` commands work, but real-time events (raids, door opens, player damage, etc.) won't trigger automatically. Use `/db help` for all commands.
+**✅ Loaded and working** — `RustDuckBot v1.4.5` is running on the live server with built-in kit grants and LM Studio active.
+
+**📦 Built-in kits** — `/db kit starter`, `/db kit pvp`, `/db kit building`, `/db kit mini`, `/db kit scrap`, `/db kit admin` all grant items directly through RustDuckBot — no external Kits plugin required.
+
+**🤖 LM Studio active** — set `"AgentProvider": "lmstudio"` in `RustDuckBot.json` and point at your local LM Studio instance.
+
+**⚠️ Hooks partially restored** — most game hooks are working after fixing Oxide.Compiler type incompatibilities (`CCTVRCamera`, `ComputerStation`, `DamageType`, `BaseEntity.IsActive()`, etc.). Some hooks may still be limited by this Rust/Oxide build. `/db help` lists all available commands.
 
 RustDuckBot turns Rust's Computer Station into an interactive AI terminal. Every player gets 13 teleport commands, full moderation tools, AI chat (`/db ask`), and 176+ total commands via `/db`. Powered by DuckBot MCP, LM Studio, OpenAI, Claude, or OpenRouter.
 
@@ -12,9 +18,10 @@ RustDuckBot turns Rust's Computer Station into an interactive AI terminal. Every
 
 ## What's New in v1.4.x
 
-- **⚠️ Hooks disabled** — all Oxide game hooks disabled because `CCTVRCamera`, `ComputerStation`, `DamageType`, `Timer` constructor, and other Rust types are not available in Oxide.Compiler. The plugin still works for commands but won't auto-trigger on game events.
-- **🖥 Computer Station UI** — CUI overlay for players at Computer Stations
+- **✅ Built-in kit grants** — `/db kit <name>` grants items directly without a separate Kits plugin. Kits: starter, pvp, building, mini, scrap, admin. Each has permission tiers, cooldowns, and daily-use limits.
+- **✅ Hooks restored** — game hooks re-enabled after fixing Oxide.Compiler incompatibilities (`CCTVRCamera`, `ComputerStation`, `DamageType`, `BaseEntity.IsActive()`, `BasePlayer.IsConnected`, `BaseEntity.OwnerID`, etc.). CCTV, security, raid/decay alerts, and player tracking work again.
 - **🤖 5 AI backends** — DuckBot MCP, LM Studio (local), OpenAI, Anthropic/Claude, OpenRouter
+- **🖥 Computer Station UI** — CUI overlay for players at Computer Stations
 - **🛰 Full teleport system** — 13 teleport commands including tpr/tpa request flow, sethome (5 per player), town, bandit, back, random TP, and coordinates
 - **🛡 Moderation tools** — report system with queue, slay, respawn, player notes, admin whisper, mute list
 - **💰 Economy & rewards** — daily scrap/RP reward, playtime tracker, top leaderboard (kills/playtime/KD)
