@@ -927,7 +927,9 @@ namespace RustDuckBot
 
         private void Init()
         {
-            if (_config == null) _config = new ConfigData();
+            try
+            {
+                if (_config == null) _config = new ConfigData();
             _agentBridge = new AgentBridge(_config.AgentProvider, _config.AgentConfig);
             _localAI = new LocalAIBridge(_config);
             _mcpClient = new MCPClient(_config.MCPServerHost, _config.MCPServerPort, this);
@@ -976,9 +978,15 @@ namespace RustDuckBot
             InitializeItemPrices();
             InitializeBuildingPlans();
 
-            PrintAsh("<color=#FFD700>RustDuckBot v1.4.2</color> loaded. Computer Station: <color=#00FF00>ENABLED</color> | Chat Panel: <color=#00FF00>ENABLED</color>");
+            PrintAsh("<color=#FFD700>RustDuckBot v1.4.3</color> loaded. Computer Station: <color=#00FF00>ENABLED</color> | Chat Panel: <color=#00FF00>ENABLED</color>");
             var aiMode = _config.AgentProvider == "duckbot" ? $"DuckBot MCP ({_config.AgentConfig})" : $"Local AI: {_config.AgentProvider}";
             PrintAsh($"AI: <color=#FFD700>{aiMode}</color> | MCP: ws://{_config.MCPServerHost}:{_config.MCPServerPort}");
+            }
+            catch (Exception ex)
+            {
+                PrintError($"[RustDuckBot] Init failed: {ex.Message}\n{ex.StackTrace}");
+                throw;
+            }
         }
 
         private void InitializeMonumentCodes()
