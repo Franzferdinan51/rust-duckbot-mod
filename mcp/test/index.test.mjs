@@ -155,6 +155,7 @@ test('guards the C# /db command path against previous silent-load regressions', 
   const source = readFileSync(resolve(repoRoot, 'src/DuckBotMod.cs'), 'utf8');
   assert.match(source, /namespace Oxide\.Plugins/);
   assert.doesNotMatch(source, /^namespace RustDuckBot/m);
+  assert.match(source, /public class RustDuckBot : Oxide\.Game\.Rust\.RustPlugin/);
   assert.match(source, /TryRegisterChatCommand\("db"\)/);
   assert.match(source, /TryRegisterChatCommand\("duckbot"\)/);
   assert.match(source, /cmd\.AddChatCommand\(commandName, this, nameof\(CmdDuckBot\)\)/);
@@ -203,7 +204,10 @@ test('ships an emergency /db command shim for failed main plugin loads', () => {
   assert.match(shimSource, /\[ChatCommand\("db"\)\]\s*\n\s*private void CmdDb/);
   assert.match(shimSource, /\[ChatCommand\("duckbot"\)\]\s*\n\s*private void CmdDuckbot/);
   assert.match(shimSource, /private object OnPlayerCommand\(BasePlayer player, string command, string\[\] args\)/);
-  assert.match(shimSource, /RustDuckBot\.Call\("CmdDuckBotShim", player, command, args\)/);
+  assert.match(shimSource, /private Plugin ResolveRustDuckBot\(\)/);
+  assert.match(shimSource, /Manager\.GetPlugin\("RustDuckBot"\)/);
+  assert.match(shimSource, /Manager\.GetPlugin\("DuckBotMod"\)/);
+  assert.match(shimSource, /plugin\.Call\("CmdDuckBotShim", player, command, args\)/);
   assert.match(shimSource, /RustDuckBot is not active/);
 });
 

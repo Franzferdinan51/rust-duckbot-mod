@@ -1,6 +1,6 @@
 # RustDuckBot
 
-> **v1.4.4** — AI-powered in-game terminal for Rust. Runs with or without an AI agent.
+> **v1.4.5** — AI-powered in-game terminal for Rust. Runs with or without an AI agent.
 
 RustDuckBot turns Rust's computer station into a full interactive AI terminal. When a player sits at a Computer Station item in-game, they get a CUI overlay panel — and every player gets 13 teleport commands, full moderation tools, economy rewards, combat intel, building helpers, and 176+ total commands. Powered by DuckBot, LM Studio, OpenAI, Claude, or OpenRouter.
 
@@ -37,7 +37,7 @@ This is the path to use with [WindowsGSM.RustOxideWithRustEdit](https://github.c
    src\DuckBotCommandShim.cs  -> serverfiles\oxide\plugins\RustDuckBotCommandShim.cs
    ```
    The shim is intentionally tiny. If the large RustDuckBot plugin fails to compile, `/db` should still answer and tell you to check the Oxide compiler logs instead of showing `Unknown command: db`.
-4. Start the server and watch the Oxide console/logs for `RustDuckBot v1.4.4 loaded`.
+4. Start the server and watch the Oxide console/logs for `RustDuckBot v1.4.5 loaded`.
 5. Edit the generated config:
    ```text
    serverfiles\oxide\config\RustDuckBot.json
@@ -61,7 +61,7 @@ If `/db help` returns `unknown command: db`, the plugin did not register with Ox
 - Whether the file is named exactly `RustDuckBot.cs`
 - Whether Oxide/uMod compiled it without C# errors
 
-v1.4.4 registers `/db` before optional AI/MCP/RCON startup, includes `[ChatCommand("db")]` and `[ChatCommand("duckbot")]` wrappers, adds a slash-command fallback hook, and ships `RustDuckBotCommandShim.cs` as a separate emergency command responder. If an optional startup step fails, `/db help` should still answer with a recovery-mode warning that includes the startup error from the Oxide console. If the main plugin does not load at all, the shim should answer with a compiler-log warning.
+v1.4.5 registers `/db` before optional AI/MCP/RCON startup, includes `[ChatCommand("db")]` and `[ChatCommand("duckbot")]` wrappers, adds a slash-command fallback hook, and ships `RustDuckBotCommandShim.cs` as a separate emergency command responder. The main plugin now uses the fully-qualified Rust plugin base class to avoid `RustPlugin` resolution failures, and the shim dynamically looks for `RustDuckBot`, `DuckBotMod`, and `RustDuckBotMod` before showing the fallback warning. If an optional startup step fails, `/db help` should still answer with a recovery-mode warning that includes the startup error from the Oxide console.
 
 For LM Studio testing on the same Windows host:
 
@@ -336,7 +336,7 @@ Full config is written to `oxide/config/RustDuckBot.json` on first load.
 | `5d3a6b4` | **v1.3.3** | 13 teleport commands + warmup + home system + back + coords |
 | `d9fb378` | **v1.4.0** | 30 new commands: moderation, economy, combat intel, building, notifications (176+ total commands) |
 | `7fd7696` | **v1.4.1** | WindowsGSM `/db` load-path fixes, AI kits, RCON guardrails, dice/8-ball/tips MCP tools |
-| `current` | **v1.4.4** | Emergency `/db` shim plugin, `/duckbot` alias wrapper, slash-command fallback hook, recovery-mode registration, ComputerStation session fixes |
+| `current` | **v1.4.5** | Fully-qualified Rust plugin base class, shim dynamic lookup for RustDuckBot/DuckBotMod names, emergency `/db` shim plugin |
 
 ---
 

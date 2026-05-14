@@ -24,6 +24,8 @@ o.reload RustDuckBotCommandShim
 
 `RustDuckBotCommandShim.cs` is an emergency `/db` and `/duckbot` responder. If the large main plugin fails to compile, the shim should still answer in chat and point you at the Oxide compiler logs instead of Rust saying `Unknown command: db`.
 
+If the shim answers but the main plugin is actually loaded under an older copied filename, v1.4.5 also checks `RustDuckBot`, `DuckBotMod`, and `RustDuckBotMod` plugin names before showing the fallback warning.
+
 The plugin registers:
 
 ```text
