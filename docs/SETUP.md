@@ -6,19 +6,23 @@
 - Node.js 18 or newer for the MCP bridge
 - An MCP-capable agent such as DuckBot/OpenClaw, Codex, Claude Desktop, Cursor, or VS Code
 
-## Install The Plugin
+## Install The Plugins
 
-Oxide plugins are single `.cs` files. Copy the plugin with the class/plugin name:
+Oxide plugins are single `.cs` files. Copy both files with their plugin names:
 
 ```bash
 cp src/DuckBotMod.cs /path/to/rust/server/oxide/plugins/RustDuckBot.cs
+cp src/DuckBotCommandShim.cs /path/to/rust/server/oxide/plugins/RustDuckBotCommandShim.cs
 ```
 
 Reload from the Rust server console:
 
 ```text
 o.reload RustDuckBot
+o.reload RustDuckBotCommandShim
 ```
+
+`RustDuckBotCommandShim.cs` is an emergency `/db` and `/duckbot` responder. If the large main plugin fails to compile, the shim should still answer in chat and point you at the Oxide compiler logs instead of Rust saying `Unknown command: db`.
 
 The plugin registers:
 
@@ -118,8 +122,8 @@ Admin smoke test:
 
 ### Plugin does not load
 
-- Confirm the file is at `oxide/plugins/RustDuckBot.cs`.
-- Check the server console after `o.reload RustDuckBot`.
+- Confirm `RustDuckBot.cs` and `RustDuckBotCommandShim.cs` are both in `oxide/plugins`.
+- Check the server console after `o.reload RustDuckBot` and `o.reload RustDuckBotCommandShim`.
 - Verify Oxide/uMod is installed for the Rust server.
 
 ### MCP bridge disconnected

@@ -156,8 +156,13 @@ test('guards the C# /db command path against previous silent-load regressions', 
   assert.match(source, /namespace Oxide\.Plugins/);
   assert.doesNotMatch(source, /^namespace RustDuckBot/m);
   assert.match(source, /TryRegisterChatCommand\("db"\)/);
+  assert.match(source, /TryRegisterChatCommand\("duckbot"\)/);
   assert.match(source, /cmd\.AddChatCommand\(commandName, this, nameof\(CmdDuckBot\)\)/);
+  assert.match(source, /\[ChatCommand\("duckbot"\)\]\s*\n\s*private void CmdDuckBotAlias/);
   assert.match(source, /\[ChatCommand\("db"\)\]\s*\n\s*private void CmdDuckBot/);
+  assert.match(source, /public object CmdDuckBotShim\(BasePlayer player, string command, string\[\] args\)/);
+  assert.match(source, /private object OnPlayerCommand\(BasePlayer player, string command, string\[\] args\)/);
+  assert.match(source, /TryHandleDuckBotSlashCommand\(player, message\)/);
   assert.match(source, /private void RegisterDuckBotCommands\(\)/);
   assert.doesNotMatch(source, /catch \(Exception ex\)\s*\{[\s\S]*?throw;\s*\}/);
   assert.ok(source.indexOf('RegisterDuckBotCommands();') < source.indexOf('_agentBridge = new AgentBridge'));
@@ -185,6 +190,21 @@ test('guards the C# /db command path against previous silent-load regressions', 
   assert.equal((source.match(/case "coords"/g) ?? []).length, 1);
   assert.equal((source.match(/case "time": ShowTime\(player, session\); break;/g) ?? []).length, 1);
   assert.match(source, /case "kit_give":\s*HandleMCPKitGive\(message\);/s);
+});
+
+test('ships an emergency /db command shim for failed main plugin loads', () => {
+  const mainSource = readFileSync(resolve(repoRoot, 'src/DuckBotMod.cs'), 'utf8');
+  const shimSource = readFileSync(resolve(repoRoot, 'src/DuckBotCommandShim.cs'), 'utf8');
+
+  assert.match(mainSource, /public object CmdDuckBotShim\(BasePlayer player, string command, string\[\] args\)/);
+  assert.match(shimSource, /namespace Oxide\.Plugins/);
+  assert.match(shimSource, /class RustDuckBotCommandShim : RustPlugin/);
+  assert.match(shimSource, /\[PluginReference\]\s*\n\s*private Plugin RustDuckBot;/);
+  assert.match(shimSource, /\[ChatCommand\("db"\)\]\s*\n\s*private void CmdDb/);
+  assert.match(shimSource, /\[ChatCommand\("duckbot"\)\]\s*\n\s*private void CmdDuckbot/);
+  assert.match(shimSource, /private object OnPlayerCommand\(BasePlayer player, string command, string\[\] args\)/);
+  assert.match(shimSource, /RustDuckBot\.Call\("CmdDuckBotShim", player, command, args\)/);
+  assert.match(shimSource, /RustDuckBot is not active/);
 });
 
 test('guards every main /db command case with a local handler method', () => {

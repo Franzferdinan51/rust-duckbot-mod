@@ -1,6 +1,6 @@
 # RustDuckBot
 
-> **v1.4.3** — AI-powered in-game terminal for Rust. Runs with or without an AI agent.
+> **v1.4.4** — AI-powered in-game terminal for Rust. Runs with or without an AI agent.
 
 RustDuckBot turns Rust's computer station into a full interactive AI terminal. When a player sits at a Computer Station item in-game, they get a CUI overlay panel — and every player gets 13 teleport commands, full moderation tools, economy rewards, combat intel, building helpers, and 176+ total commands. Powered by DuckBot, LM Studio, OpenAI, Claude, or OpenRouter.
 
@@ -31,19 +31,27 @@ This is the path to use with [WindowsGSM.RustOxideWithRustEdit](https://github.c
 
 1. Install/start the RustOxideWithRustEdit server in WindowsGSM.
 2. Use WindowsGSM's file browser or open the server files folder.
-3. Copy `src/DuckBotMod.cs` to:
+3. Copy both plugin files:
    ```text
-   serverfiles\oxide\plugins\RustDuckBot.cs
+   src\DuckBotMod.cs          -> serverfiles\oxide\plugins\RustDuckBot.cs
+   src\DuckBotCommandShim.cs  -> serverfiles\oxide\plugins\RustDuckBotCommandShim.cs
    ```
-4. Start the server and watch the Oxide console/logs for `RustDuckBot v1.4.3 loaded`.
+   The shim is intentionally tiny. If the large RustDuckBot plugin fails to compile, `/db` should still answer and tell you to check the Oxide compiler logs instead of showing `Unknown command: db`.
+4. Start the server and watch the Oxide console/logs for `RustDuckBot v1.4.4 loaded`.
 5. Edit the generated config:
    ```text
    serverfiles\oxide\config\RustDuckBot.json
    ```
-6. Reload:
+6. Reload both plugins:
    ```text
    oxide.reload RustDuckBot
+   oxide.reload RustDuckBotCommandShim
    ```
+
+The main plugin must still be named exactly:
+```text
+serverfiles\oxide\plugins\RustDuckBot.cs
+```
 
 If `/db help` returns `unknown command: db`, the plugin did not register with Oxide. `/db help` does not call LM Studio or any AI backend, so treat that as a plugin load/compile issue first. Check:
 
@@ -53,7 +61,7 @@ If `/db help` returns `unknown command: db`, the plugin did not register with Ox
 - Whether the file is named exactly `RustDuckBot.cs`
 - Whether Oxide/uMod compiled it without C# errors
 
-v1.4.3 registers `/db` before optional AI/MCP/RCON startup and also includes a `[ChatCommand("db")]` fallback. If an optional startup step fails, `/db help` should still answer with a recovery-mode warning that includes the startup error from the Oxide console.
+v1.4.4 registers `/db` before optional AI/MCP/RCON startup, includes `[ChatCommand("db")]` and `[ChatCommand("duckbot")]` wrappers, adds a slash-command fallback hook, and ships `RustDuckBotCommandShim.cs` as a separate emergency command responder. If an optional startup step fails, `/db help` should still answer with a recovery-mode warning that includes the startup error from the Oxide console. If the main plugin does not load at all, the shim should answer with a compiler-log warning.
 
 For LM Studio testing on the same Windows host:
 
@@ -141,15 +149,17 @@ Any interchangeable MCP-capable agent can use the tool surface. Regular player f
 
 ## Quick Start
 
-### 1. Copy the plugin
+### 1. Copy the plugins
 ```bash
 cp src/DuckBotMod.cs /path/to/rust/server/oxide/plugins/RustDuckBot.cs
+cp src/DuckBotCommandShim.cs /path/to/rust/server/oxide/plugins/RustDuckBotCommandShim.cs
 ```
-Reload from server console: `oxide.reload RustDuckBot`
+Reload from server console: `oxide.reload RustDuckBot` and `oxide.reload RustDuckBotCommandShim`
 
-**WindowsGSM:** open the server's file browser from WindowsGSM and copy `src/DuckBotMod.cs` to:
+**WindowsGSM:** open the server's file browser from WindowsGSM and copy both files:
 ```text
-serverfiles\oxide\plugins\RustDuckBot.cs
+src\DuckBotMod.cs          -> serverfiles\oxide\plugins\RustDuckBot.cs
+src\DuckBotCommandShim.cs  -> serverfiles\oxide\plugins\RustDuckBotCommandShim.cs
 ```
 The WindowsGSM RustOxideWithRustEdit plugin starts `RustDedicated.exe` with `+rcon.web 1` and writes `server.cfg` in the server files directory. DuckBot config appears after first load at:
 ```text
@@ -326,13 +336,14 @@ Full config is written to `oxide/config/RustDuckBot.json` on first load.
 | `5d3a6b4` | **v1.3.3** | 13 teleport commands + warmup + home system + back + coords |
 | `d9fb378` | **v1.4.0** | 30 new commands: moderation, economy, combat intel, building, notifications (176+ total commands) |
 | `7fd7696` | **v1.4.1** | WindowsGSM `/db` load-path fixes, AI kits, RCON guardrails, dice/8-ball/tips MCP tools |
-| `current` | **v1.4.3** | `/db` recovery-mode registration, ComputerStation session fixes, old-framework helper cleanup, safer local AI JSON parsing |
+| `current` | **v1.4.4** | Emergency `/db` shim plugin, `/duckbot` alias wrapper, slash-command fallback hook, recovery-mode registration, ComputerStation session fixes |
 
 ---
 
 ## File Structure
 ```
 src/DuckBotMod.cs              # Oxide/uMod Rust plugin (C#, 6,000+ lines, 176+ commands)
+src/DuckBotCommandShim.cs      # Tiny emergency /db + /duckbot shim if the main plugin fails to load
 mcp/server/src/index.ts        # MCP server + WebSocket bridge (TypeScript)
 mcp/test/index.test.mjs        # MCP behavior tests
 skills/rust-duckbot/SKILL.md   # Agent-facing skill docs
