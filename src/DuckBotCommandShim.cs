@@ -35,11 +35,12 @@ namespace Oxide.Plugins
             if (player == null) return;
             if (args == null) args = Array.Empty<string>();
 
-            if (RustDuckBot != null)
+            var plugin = ResolveRustDuckBot();
+            if (plugin != null)
             {
                 try
                 {
-                    var result = RustDuckBot.Call("CmdDuckBotShim", player, command, args);
+                    var result = plugin.Call("CmdDuckBotShim", player, command, args);
                     if (result != null) return;
                 }
                 catch (Exception ex)
@@ -49,6 +50,29 @@ namespace Oxide.Plugins
             }
 
             PrintToChat(player, "<color=#FFD700>DuckBot:</color> RustDuckBot is not active. The /db shim loaded, so check Oxide compiler logs and make sure RustDuckBot.cs is installed next to RustDuckBotCommandShim.cs.");
+        }
+
+        private Plugin ResolveRustDuckBot()
+        {
+            if (RustDuckBot != null) return RustDuckBot;
+
+            try
+            {
+                if (Manager == null) return null;
+
+                var plugin = Manager.GetPlugin("RustDuckBot") as Plugin;
+                if (plugin != null) return plugin;
+
+                plugin = Manager.GetPlugin("DuckBotMod") as Plugin;
+                if (plugin != null) return plugin;
+
+                return Manager.GetPlugin("RustDuckBotMod") as Plugin;
+            }
+            catch (Exception ex)
+            {
+                PrintWarning("RustDuckBot lookup failed: " + ex.Message);
+                return null;
+            }
         }
 
         private bool IsDuckBotCommand(string command)
