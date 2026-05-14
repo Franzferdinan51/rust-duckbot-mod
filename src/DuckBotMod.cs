@@ -13,7 +13,7 @@ using UnityEngine;
 
 namespace RustDuckBot
 {
-    [Info("RustDuckBot", "1.4.2", "Duckets")]
+    [Info("RustDuckBot", "1.4.3", "Duckets")]
     [Description("AI-powered computer station with DuckBot. CCTV, security, base management, trading, automation, intel, and more.")]
     public class RustDuckBot : RustPlugin
     {
@@ -178,6 +178,111 @@ namespace RustDuckBot
         private Dictionary<ulong, TeleportRequest> _teleportRequests = new Dictionary<ulong, TeleportRequest>();
         private HashSet<string> _monumentCameraCodes = new HashSet<string>();
         private HashSet<string> _playerOwnedCameraIds = new HashSet<string>();
+
+        // Group / Party system
+        private Dictionary<ulong, PlayerGroup> _groups = new Dictionary<ulong, PlayerGroup>();
+        private Dictionary<ulong, ulong> _groupInvites = new Dictionary<ulong, ulong>(); // invitee -> leaderId
+
+        // Raid alert subscribers
+        private HashSet<ulong> _raidAlertSubscribers = new HashSet<ulong>();
+
+        // AFK / Timers
+        private Timer _afkCheckTimer;
+        private Timer _autoSaveTimer;
+
+        // Data persistence
+        private DuckBotData _saveData;
+        private List<AlertEntry> _alertHistory = new List<AlertEntry>();
+
+        // Group class
+        private class PlayerGroup
+        {
+            public string Id;
+            public string Name;
+            public ulong LeaderId;
+            public HashSet<ulong> Members = new HashSet<ulong>();
+            public Dictionary<string, Position3D> SharedHomes = new Dictionary<string, Position3D>();
+            public DateTime Created;
+            public DateTime LastActivity;
+        }
+
+        // Persistence data classes
+        [Serializable]
+        private class DuckBotData
+        {
+            public Dictionary<string, PlayerSessionData> PlayerSessions = new Dictionary<string, PlayerSessionData>();
+            public List<ComputerStationSessionData> ComputerStationSessions = new List<ComputerStationSessionData>();
+            public List<ActivityEntryData> ActivityLog = new List<ActivityEntryData>();
+            public List<AlertEntryData> AlertHistory = new List<AlertEntryData>();
+            public List<GridMarkerData> CameraBookmarks = new List<GridMarkerData>();
+            public List<GroupData> Groups = new List<GroupData>();
+            public Dictionary<string, TrackedPlayerData> TrackedPlayers = new Dictionary<string, TrackedPlayerData>();
+            public DateTime LastSaveTime;
+        }
+        [Serializable]
+        private class PlayerSessionData
+        {
+            public ulong PlayerId;
+            public string DisplayName;
+            public string Role;
+            public Dictionary<string, PositionData> Homes = new Dictionary<string, PositionData>();
+            public TimeSpan OnlineTime;
+            public DateTime LastSeen;
+            public Dictionary<string, string> PlayerNotes = new Dictionary<string, string>();
+            public int CurrentKillstreak;
+            public DateTime LastKillTime;
+            public DateTime LastDailyReward;
+            public int TotalScrap;
+            public int Balance;
+            public List<string> Permissions = new List<string>();
+            public List<string> Bookmarks = new List<string>();
+        }
+        [Serializable]
+        private class PositionData { public float X, Y, Z; public PositionData() { } public PositionData(float x, float y, float z) { X = x; Y = y; Z = z; } public Vector3 ToVector3() => new Vector3(X, Y, Z); }
+        [Serializable]
+        private class ComputerStationSessionData
+        {
+            public ulong PlayerId;
+            public string ActiveCameraId;
+            public string ActiveCameraName;
+            public bool IsWatchingCCTV;
+            public DateTime SessionStart;
+            public int CamerasViewed;
+            public List<string> AvailableCameraCodes = new List<string>();
+        }
+        [Serializable]
+        private class ActivityEntryData
+        {
+            public DateTime Time; public string Category; public string Action; public string Details;
+            public string PlayerId; public string PlayerName;
+        }
+        [Serializable]
+        private class AlertEntryData
+        {
+            public string Id; public string Type; public string Severity; public string Title;
+            public string Message; public DateTime Time; public bool Acknowledged;
+            public string AcknowledgedBy; public DateTime AcknowledgedAt;
+        }
+        [Serializable]
+        private class GridMarkerData
+        {
+            public string Id; public string Name; public PositionData Position;
+            public string Color; public string Icon; public bool Visible; public string OwnerId;
+        }
+        [Serializable]
+        private class GroupData
+        {
+            public string Id; public string Name; public ulong LeaderId;
+            public List<ulong> MemberIds = new List<ulong>();
+            public Dictionary<string, PositionData> SharedHomes = new Dictionary<string, PositionData>();
+            public DateTime Created;
+        }
+        [Serializable]
+        private class TrackedPlayerData
+        {
+            public string UserId; public string DisplayName;
+            public int Kills; public int Deaths; public DateTime LastSeen;
+        }
 
         private class ComputerStationSession
         {
@@ -492,6 +597,15 @@ namespace RustDuckBot
             public List<PlayerNotification> Notifications = new List<PlayerNotification>();
             public bool IsAFK;
             public DateTime LastActivity = DateTime.Now;
+            // AFK tracking
+            public bool _afkManual;
+            public bool _afkAutoDetected;
+            // Killstreak
+            public int CurrentKillstreak;
+            public DateTime LastKillTime;
+            // Economy
+            public int TotalScrap;
+            public int Balance;
             // Death/kill history
             public List<DeathRecord> RecentDeaths = new List<DeathRecord>();
         }
@@ -850,6 +964,11 @@ namespace RustDuckBot
             Subscribe(nameof(OnComputerStationUse));
             Subscribe(nameof(OnPlayerInput));
             Subscribe(nameof(CanClientMove));
+            // New hooks for features
+            Subscribe(nameof(OnPlayerSleep));
+            Subscribe(nameof(OnPlayerSleepEnded));
+            Subscribe(nameof(OnEntityDeath));
+            Subscribe(nameof(OnPlayerRespawned));
 
             // Initialize monument camera codes
             InitializeMonumentCodes();
@@ -916,6 +1035,15 @@ namespace RustDuckBot
 
             // Radar sweep every 10s
             _radarTimer = new Timer(RadarCallback, null, 10000, 10000);
+
+            // AFK check every 30s
+            _afkCheckTimer = new Timer(AFKCheckCallback, null, 30000, 30000);
+
+            // Auto-save every 5 min
+            _autoSaveTimer = new Timer(AutoSaveCallback, null, 300000, 300000);
+
+            // Load persisted data
+            LoadData();
 
             SendServerStatus();
             LogActivity("system", "Server initialized", $"RustDuckBot v1.4.2 started. Cameras: {_cameras.Count}");
@@ -1059,6 +1187,8 @@ namespace RustDuckBot
             _automationTimer?.Dispose();
             _decayTimer?.Dispose();
             _radarTimer?.Dispose();
+            _afkCheckTimer?.Dispose();
+            _autoSaveTimer?.Dispose();
             _mcpClient?.Disconnect();
             _rconClient?.Disconnect();
             SaveData();
@@ -1908,6 +2038,12 @@ namespace RustDuckBot
                 case "discord": ShowDiscord(player); break;
                 case "support": ShowSupport(player); break;
                 case "bug": HandleBugReport(player, session, argStr); break;
+
+                // === NEW: RAID ALERTS ===
+                case "raidalert": case "raidalerts": HandleRaidAlert(player, session); break;
+
+                // === NEW: GROUPS / PARTIES ===
+                case "group": case "party": case "pgroup": HandleGroup(player, session, argStr); break;
 
                 default:
                     // Treat as AI chat
@@ -3915,6 +4051,8 @@ namespace RustDuckBot
         private void HandleAFK(BasePlayer player, PlayerSession session)
         {
             session.IsAFK = !session.IsAFK;
+            session._afkManual = session.IsAFK;
+            session._afkAutoDetected = false;
             if (session.IsAFK)
             {
                 session.LastActivity = DateTime.Now;
@@ -5487,7 +5625,316 @@ namespace RustDuckBot
             LogDuckBotDebug($"Console fallback command by {actor}: {command}");
         }
 
-        private void SaveData() { }
+        private void SaveData()
+        {
+            var data = new DuckBotData { LastSaveTime = DateTime.Now };
+            foreach (var kvp in _sessions)
+            {
+                var ps = kvp.Value;
+                data.PlayerSessions[ps.PlayerId.ToString()] = new PlayerSessionData
+                {
+                    PlayerId = ps.PlayerId, DisplayName = ps.DisplayName, Role = ps.Role,
+                    Homes = ps.Homes.ToDictionary(h => h.Key, h => new PositionData(h.Value.X, h.Value.Y, h.Value.Z)),
+                    OnlineTime = ps.OnlineTime, LastSeen = ps.LastSeen,
+                    PlayerNotes = new Dictionary<string, string>(ps.PlayerNotes),
+                    CurrentKillstreak = ps.CurrentKillstreak, LastKillTime = ps.LastKillTime,
+                    LastDailyReward = ps.LastDailyReward, TotalScrap = ps.TotalScrap, Balance = ps.Balance,
+                    Permissions = ps.Permissions.ToList(), Bookmarks = ps.Bookmarks.ToList()
+                };
+            }
+            foreach (var kvp in _computerSessions)
+                data.ComputerStationSessions.Add(new ComputerStationSessionData { PlayerId = kvp.Key, ActiveCameraId = kvp.Value.ActiveCameraId, ActiveCameraName = kvp.Value.ActiveCameraName, IsWatchingCCTV = kvp.Value.IsWatchingCCTV, SessionStart = kvp.Value.SessionStart, CamerasViewed = kvp.Value.CamerasViewed, AvailableCameraCodes = new List<string>(kvp.Value.AvailableCameraCodes) });
+            foreach (var e in _activityLog)
+                data.ActivityLog.Add(new ActivityEntryData { Time = e.Time, Category = e.Category, Action = e.Action, Details = e.Details, PlayerId = e.PlayerId, PlayerName = e.PlayerName });
+            foreach (var a in _alertHistory)
+                data.AlertHistory.Add(new AlertEntryData { Id = a.Id, Type = a.Type, Severity = a.Severity, Title = a.Title, Message = a.Message, Time = a.Time, Acknowledged = a.Acknowledged, AcknowledgedBy = a.AcknowledgedBy, AcknowledgedAt = a.AcknowledgedAt });
+            foreach (var m in _gridMarkers)
+                data.CameraBookmarks.Add(new GridMarkerData { Id = m.Id, Name = m.Name, Position = new PositionData(m.Position.x, m.Position.y, m.Position.z), Color = m.Color, Icon = m.Icon, Visible = m.Visible, OwnerId = m.OwnerId });
+            foreach (var g in _groups)
+                data.Groups.Add(new GroupData { Id = g.Value.Id, Name = g.Value.Name, LeaderId = g.Value.LeaderId, MemberIds = g.Value.Members.ToList(), SharedHomes = g.Value.SharedHomes.ToDictionary(h => h.Key, h => new PositionData(h.Value.X, h.Value.Y, h.Value.Z)), Created = g.Value.Created });
+            foreach (var kvp in _trackedPlayers)
+                data.TrackedPlayers[kvp.Key] = new TrackedPlayerData { UserId = kvp.Value.UserId, DisplayName = kvp.Value.DisplayName, Kills = kvp.Value.Kills, Deaths = kvp.Value.Deaths, LastSeen = kvp.Value.LastSeen };
+            Interface.Oxide.DataFileSystem.WriteObject("DuckBotData", data);
+            PrintAsh($"[Data] Saved {data.PlayerSessions.Count} sessions, {_groups.Count} groups, {_activityLog.Count} activity entries");
+        }
+
+        private void LoadData()
+        {
+            var data = Interface.Oxide.DataFileSystem.ReadObject<DuckBotData>("DuckBotData");
+            if (data == null) return;
+            foreach (var kvp in data.TrackedPlayers)
+                if (!_trackedPlayers.ContainsKey(kvp.Key)) _trackedPlayers[kvp.Key] = new TrackedPlayer { UserId = kvp.Value.UserId, DisplayName = kvp.Value.DisplayName, Kills = kvp.Value.Kills, Deaths = kvp.Value.Deaths, LastSeen = kvp.Value.LastSeen, LastTrackTime = DateTime.Now };
+            foreach (var e in data.ActivityLog.Take(_config.MaxActivityLog))
+                _activityLog.Add(new ActivityEntry { Time = e.Time, Category = e.Category, Action = e.Action, Details = e.Details, PlayerId = e.PlayerId, PlayerName = e.PlayerName });
+            _alertHistory = data.AlertHistory.Select(a => new AlertEntry { Id = a.Id, Type = a.Type, Severity = a.Severity, Title = a.Title, Message = a.Message, Time = a.Time, Acknowledged = a.Acknowledged, AcknowledgedBy = a.AcknowledgedBy, AcknowledgedAt = a.AcknowledgedAt }).ToList();
+            foreach (var m in data.CameraBookmarks)
+                _gridMarkers.Add(new GridMarker { Id = m.Id, Name = m.Name, Position = m.Position.ToVector3(), Color = m.Color, Icon = m.Icon, Visible = m.Visible, OwnerId = m.OwnerId });
+            foreach (var g in data.Groups)
+                _groups[g.LeaderId] = new PlayerGroup { Id = g.Id, Name = g.Name, LeaderId = g.LeaderId, Members = new HashSet<ulong>(g.MemberIds), SharedHomes = g.SharedHomes.ToDictionary(h => h.Key, h => new Position3D(h.Value.ToVector3())), Created = g.Created, LastActivity = DateTime.Now };
+            _saveData = data;
+            PrintAsh($"[Data] Loaded {data.PlayerSessions.Count} sessions, {data.Groups.Count} groups, {data.TrackedPlayers.Count} tracked players");
+        }
+
+        private void AutoSaveCallback(object state)
+        {
+            if (_config.EnableAutoFeatures) { SaveData(); LogActivity("system", "Auto-save", "Data auto-saved"); }
+        }
+
+        private void AFKCheckCallback(object state)
+        {
+            if (!_config.EnableAutoFeatures) return;
+            foreach (var player in BasePlayer.activePlayerList)
+            {
+                var session = GetOrCreateSession(player);
+                if (!session.IsOnline || !player.IsConnected()) continue;
+                if (session.IsAFK && !session._afkManual) continue;
+                var idleTime = (DateTime.Now - session.LastActivity).TotalMinutes;
+                if (idleTime >= _config.AFKKickMinutes && _config.AutoKickAFK)
+                {
+                    player.Kick("AFK timeout");
+                    LogActivity("system", "AFK Kick", $"Kicked {player.displayName} after {idleTime:F0} min idle");
+                }
+                else if (idleTime >= _config.AFKTimeoutMinutes && !session.IsAFK)
+                {
+                    session.IsAFK = true;
+                    session._afkAutoDetected = true;
+                    PrintToChat(player, $"<color=#FFD700>You have been idle for {idleTime:F0} minutes. Use /db afk off to cancel.</color>");
+                }
+            }
+        }
+
+        private void OnEntityDeath(BasePlayer victim, HitInfo info)
+        {
+            if (victim == null) return;
+            var attacker = info?.Initiator as BasePlayer;
+            if (attacker == null || attacker == victim) return;
+            var attackerSession = GetOrCreateSession(attacker);
+            var victimSession = GetOrCreateSession(victim);
+            if ((DateTime.Now - attackerSession.LastKillTime).TotalMinutes > 5) attackerSession.CurrentKillstreak = 0;
+            attackerSession.CurrentKillstreak++;
+            attackerSession.LastKillTime = DateTime.Now;
+            int[] milestones = { 3, 5, 10, 15, 20, 25, 50 };
+            int[] rewards = { 50, 150, 500, 1000, 2500, 5000, 10000 };
+            int mi = Array.FindLastIndex(milestones, m => attackerSession.CurrentKillstreak >= m);
+            if (mi >= 0)
+            {
+                attackerSession.TotalScrap += rewards[mi];
+                PrintToChat(attacker, $"<color=#FFD700>⚔ Killstreak {attackerSession.CurrentKillstreak}!</color> Earned <color=#FF9900>+{rewards[mi]} scrap</color>");
+                _ = _agentBridge.SendToAgentAsync(new { type = "killstreak_reward", playerId = attacker.UserIDString, playerName = attacker.displayName, streak = attackerSession.CurrentKillstreak, reward = rewards[mi], milestone = milestones[mi], timestamp = DateTime.UtcNow.ToString("O") });
+                LogActivity("pvp", "Killstreak", $"{attacker.displayName} reached streak {attackerSession.CurrentKillstreak} (milestone {milestones[mi]})", attacker.UserIDString, attacker.displayName);
+            }
+            if (victimSession.CurrentKillstreak >= 5) PrintToChat(victim, $"<color=#888>Your killstreak of {victimSession.CurrentKillstreak} was ended.</color>");
+            victimSession.CurrentKillstreak = 0;
+            if (_trackedPlayers.TryGetValue(attacker.UserIDString, out var tp)) tp.Kills++;
+            if (_trackedPlayers.TryGetValue(victim.UserIDString, out var vt)) vt.Deaths++;
+            TryDetectRaid(attacker, victim, victim.transform.position);
+        }
+
+        private void TryDetectRaid(BasePlayer attacker, BasePlayer victim, Vector3 position)
+        {
+            if (attacker == null || victim == null) return;
+            if (attacker == victim) return;
+            var cupboards = UnityEngine.Object.FindObjectsOfType<BuildingPrivlidge>().Where(tc => Vector3.Distance(tc.transform.position, position) < _config.RaidAlertRadius).ToList();
+            foreach (var tc in cupboards)
+            {
+                var ownerId = tc.OwnerID.ToString();
+                if (string.IsNullOrEmpty(ownerId)) continue;
+                var isAuth = tc.authorizedPlayers?.Any(p => p.userid == attacker.userID) ?? false;
+                if (isAuth) continue;
+                var grid = GetGridCoord(position);
+                var monument = GetNearestMonument(position);
+                foreach (var sid in _raidAlertSubscribers)
+                {
+                    var sub = BasePlayer.Find(sid.ToString());
+                    if (sub != null && sub.IsConnected()) PrintToChat(sub, $"<color=#FF4444>⚠ RAID ALERT:</color> {attacker.displayName} is raiding near {grid} ({monument})");
+                }
+                _ = _agentBridge.SendToAgentAsync(new { type = "raid_alert", attackerId = attacker.UserIDString, attackerName = attacker.displayName, victimId = victim.UserIDString, victimName = victim.displayName, gridCoord = grid, monument = monument, timestamp = DateTime.UtcNow.ToString("O") });
+                LogActivity("security", "Raid detected", $"{attacker.displayName} raiding at {grid} ({monument})", attacker.UserIDString, attacker.displayName);
+                return;
+            }
+        }
+
+        private void OnPlayerSleep(BasePlayer player)
+        {
+            if (player == null) return;
+            var session = GetOrCreateSession(player);
+            session.IsAFK = true;
+            session.LastActivity = DateTime.Now;
+        }
+
+        private void OnPlayerSleepEnded(BasePlayer player)
+        {
+            if (player == null) return;
+            var session = GetOrCreateSession(player);
+            if (session._afkAutoDetected) session.IsAFK = false;
+        }
+
+        private void OnPlayerRespawned(BasePlayer player)
+        {
+            if (player == null) return;
+            var session = GetOrCreateSession(player);
+            var now = DateTime.Now;
+            if (session.LastDailyReward.Date < now.Date)
+            {
+                session.TotalScrap += _config.DailyRewardScrap;
+                session.LastDailyReward = now;
+                timer.Once(1f, () => { if (player.IsConnected()) PrintToChat(player, $"<color=#00FF88>Welcome back! Daily reward: +{_config.DailyRewardScrap} scrap</color>"); });
+            }
+            _ = _agentBridge.SendToAgentAsync(new { type = "player_respawned", playerId = player.UserIDString, playerName = player.displayName, position = GetGridCoord(player.transform.position), timestamp = DateTime.UtcNow.ToString("O") });
+        }
+
+        private void HandleRaidAlert(BasePlayer player, PlayerSession session)
+        {
+            if (_raidAlertSubscribers.Contains(player.userID))
+            { _raidAlertSubscribers.Remove(player.userID); PrintToChat(player, "<color=#00FF88>Raid alerts disabled.</color>"); }
+            else
+            { _raidAlertSubscribers.Add(player.userID); PrintToChat(player, "<color=#FFD700>Raid alerts enabled. You will be notified of nearby raids.</color>"); }
+        }
+
+        private void HandleGroup(BasePlayer player, PlayerSession session, string args)
+        {
+            var argv = args.Split(' ', 3);
+            var action = argv.Length > 0 ? argv[0].ToLower() : "info";
+            var arg1 = argv.Length > 1 ? argv[1] : "";
+            switch (action)
+            {
+                case "create": case "new": HandleGroupCreate(player, session, arg1); break;
+                case "invite": HandleGroupInvite(player, session, arg1); break;
+                case "join": HandleGroupJoin(player, session); break;
+                case "leave": HandleGroupLeave(player, session); break;
+                case "kick": HandleGroupKick(player, session, arg1); break;
+                case "disband": HandleGroupDisband(player, session); break;
+                case "homes": HandleGroupHomes(player, session); break;
+                case "tp": HandleGroupTp(player, session, arg1); break;
+                case "sethome": HandleGroupSetHome(player, session, arg1); break;
+                case "info": HandleGroupInfo(player, session); break;
+                default:
+                    PrintToChat(player, "<color=#FFD700>Group commands:</color> /db group create [name], /db group invite [player], /db group join, /db group leave, /db group homes, /db group tp [home], /db group sethome [name]");
+                    break;
+            }
+        }
+
+        private void HandleGroupCreate(BasePlayer player, PlayerSession session, string groupName)
+        {
+            if (_groups.ContainsKey(player.userID)) { PrintToChat(player, "<color=#FF4444>You are already in a group. Leave first.</color>"); return; }
+            if (string.IsNullOrWhiteSpace(groupName)) groupName = $"{player.displayName}'s group";
+            var group = new PlayerGroup { Id = Guid.NewGuid().ToString("N").Substring(0, 8), Name = groupName, LeaderId = player.userID, Members = new HashSet<ulong> { player.userID }, SharedHomes = new Dictionary<string, Position3D>(), Created = DateTime.Now, LastActivity = DateTime.Now };
+            _groups[player.userID] = group;
+            PrintToChat(player, $"<color=#00FF88>Group created:</color> {groupName}");
+            LogActivity("group", "Group created", $"Group '{groupName}' created by {player.displayName}", player.UserIDString, player.displayName);
+        }
+
+        private void HandleGroupInvite(BasePlayer player, PlayerSession session, string targetName)
+        {
+            if (!_groups.TryGetValue(player.userID, out var group) || group.LeaderId != player.userID) { PrintToChat(player, "<color=#FF4444>Only the group leader can invite players.</color>"); return; }
+            var target = FindPlayerByName(targetName);
+            if (target == null) { PrintToChat(player, "<color=#FF4444>Player not found.</color>"); return; }
+            if (_groups.ContainsKey(target.userID)) { PrintToChat(player, $"<color=#FF4444>{target.displayName} is already in a group.</color>"); return; }
+            _groupInvites[target.userID] = player.userID;
+            PrintToChat(player, $"<color=#FFD700>Invite sent to {target.displayName}.</color>");
+            PrintToChat(target, $"<color=#FFD700>{player.displayName} invited you to group '{group.Name}'. Use /db group join to accept.</color>");
+        }
+
+        private void HandleGroupJoin(BasePlayer player, PlayerSession session)
+        {
+            if (_groups.ContainsKey(player.userID)) { PrintToChat(player, "<color=#FF4444>You are already in a group.</color>"); return; }
+            if (!_groupInvites.TryGetValue(player.userID, out var leaderId)) { PrintToChat(player, "<color=#FF4444>No pending invite.</color>"); return; }
+            if (!_groups.TryGetValue(leaderId, out var group)) { PrintToChat(player, "<color=#FF4444>Group no longer exists.</color>"); _groupInvites.Remove(player.userID); return; }
+            group.Members.Add(player.userID);
+            _groups[player.userID] = group;
+            _groupInvites.Remove(player.userID);
+            PrintToChat(player, $"<color=#00FF88>Joined group: {group.Name}</color>");
+            foreach (var mid in group.Members) { var m = BasePlayer.Find(mid.ToString()); if (m != null) PrintToChat(m, $"<color=#FFD700>{player.displayName} joined the group.</color>"); }
+            LogActivity("group", "Player joined", $"{player.displayName} joined group '{group.Name}'", player.UserIDString, player.displayName);
+        }
+
+        private void HandleGroupLeave(BasePlayer player, PlayerSession session)
+        {
+            if (!_groups.TryGetValue(player.userID, out var group)) { PrintToChat(player, "<color=#FF4444>You are not in a group.</color>"); return; }
+            if (group.LeaderId == player.userID && group.Members.Count > 1)
+            {
+                var newLeader = group.Members.First(m => m != player.userID);
+                group.LeaderId = newLeader;
+                group.Members.Remove(player.userID);
+                _groups.Remove(player.userID);
+                _groups[newLeader] = group;
+                var nlp = BasePlayer.Find(newLeader.ToString());
+                foreach (var mid in group.Members) { var m = BasePlayer.Find(mid.ToString()); if (m != null) PrintToChat(m, $"<color=#FFD700>{player.displayName} left. {nlp?.displayName ?? "New leader"} is now the leader.</color>"); }
+            }
+            else
+            {
+                foreach (var mid in group.Members) { var m = BasePlayer.Find(mid.ToString()); if (m != null && mid != player.userID) PrintToChat(m, $"<color=#FF4444>{player.displayName} left the group.</color>"); _groups.Remove(mid); }
+                PrintToChat(player, "<color=#00FF88>You left the group.</color>");
+                return;
+            }
+            group.Members.Remove(player.userID);
+            _groups.Remove(player.userID);
+            PrintToChat(player, "<color=#00FF88>You left the group.</color>");
+            LogActivity("group", "Player left", $"{player.displayName} left group '{group.Name}'", player.UserIDString, player.displayName);
+        }
+
+        private void HandleGroupKick(BasePlayer player, PlayerSession session, string targetName)
+        {
+            if (!_groups.TryGetValue(player.userID, out var group) || group.LeaderId != player.userID) { PrintToChat(player, "<color=#FF4444>Only the group leader can kick players.</color>"); return; }
+            var target = FindPlayerByName(targetName);
+            if (target == null) { PrintToChat(player, "<color=#FF4444>Player not found.</color>"); return; }
+            if (!group.Members.Contains(target.userID)) { PrintToChat(player, $"<color=#FF4444>{target.displayName} is not in your group.</color>"); return; }
+            if (target.userID == player.userID) { PrintToChat(player, "<color=#FF4444>You cannot kick yourself.</color>"); return; }
+            group.Members.Remove(target.userID);
+            _groups.Remove(target.userID);
+            PrintToChat(target, "<color=#FF4444>You were kicked from the group.</color>");
+            PrintToChat(player, $"<color=#00FF88>Kicked {target.displayName} from the group.</color>");
+            foreach (var mid in group.Members) { var m = BasePlayer.Find(mid.ToString()); if (m != null) PrintToChat(m, $"<color=#FFD700>{target.displayName} was kicked from the group.</color>"); }
+        }
+
+        private void HandleGroupDisband(BasePlayer player, PlayerSession session)
+        {
+            if (!_groups.TryGetValue(player.userID, out var group)) { PrintToChat(player, "<color=#FF4444>You are not in a group.</color>"); return; }
+            if (group.LeaderId != player.userID) { PrintToChat(player, "<color=#FF4444>Only the group leader can disband.</color>"); return; }
+            foreach (var mid in group.Members) { var m = BasePlayer.Find(mid.ToString()); if (m != null) PrintToChat(m, $"<color=#FF4444>Group '{group.Name}' was disbanded by {player.displayName}.</color>"); _groups.Remove(mid); }
+            LogActivity("group", "Group disbanded", $"Group '{group.Name}' disbanded by {player.displayName}", player.UserIDString, player.displayName);
+        }
+
+        private void HandleGroupHomes(BasePlayer player, PlayerSession session)
+        {
+            if (!_groups.TryGetValue(player.userID, out var group)) { PrintToChat(player, "<color=#FF4444>You are not in a group.</color>"); return; }
+            PrintToChat(player, $"<color=#FFD700>═══ {group.Name} HOMES ({group.SharedHomes.Count}) ═══</color>");
+            if (group.SharedHomes.Count == 0) { PrintToChat(player, "No shared homes. Leader: /db group sethome [name]"); return; }
+            foreach (var kvp in group.SharedHomes) PrintToChat(player, $"  <color=#4DA6FF>{kvp.Key}</color> @ {GetGridCoord(kvp.Value.ToVector3())}");
+        }
+
+        private void HandleGroupSetHome(BasePlayer player, PlayerSession session, string homeName)
+        {
+            if (!_groups.TryGetValue(player.userID, out var group)) { PrintToChat(player, "<color=#FF4444>You are not in a group.</color>"); return; }
+            if (group.LeaderId != player.userID) { PrintToChat(player, "<color=#FF4444>Only the group leader can set shared homes.</color>"); return; }
+            if (string.IsNullOrWhiteSpace(homeName)) homeName = $"{player.displayName}'s base";
+            group.SharedHomes[homeName] = new Position3D(player.transform.position);
+            PrintToChat(player, $"<color=#00FF88>Shared home '{homeName}' set at {GetGridCoord(player.transform.position)}</color>");
+            foreach (var mid in group.Members) { var m = BasePlayer.Find(mid.ToString()); if (m != null && mid != player.userID) PrintToChat(m, $"<color=#FFD700>New shared home '{homeName}' was added by {player.displayName}.</color>"); }
+        }
+
+        private void HandleGroupTp(BasePlayer player, PlayerSession session, string homeName)
+        {
+            if (!_groups.TryGetValue(player.userID, out var group)) { PrintToChat(player, "<color=#FF4444>You are not in a group.</color>"); return; }
+            if (string.IsNullOrWhiteSpace(homeName)) { PrintToChat(player, "<color=#FFD700>Usage:</color> /db group tp [home_name]"); return; }
+            if (!group.SharedHomes.TryGetValue(homeName, out var pos)) { PrintToChat(player, $"<color=#FF4444>Home '{homeName}' not found.</color>"); return; }
+            session._pendingTeleport = true;
+            session._teleportStartPos = new Position3D(player.transform.position);
+            session._teleportDestination = pos;
+            session._teleportReason = $"group tp to {homeName}";
+            PrintToChat(player, $"<color=#FFD700>Teleporting in {_config.TeleportWarmupSeconds}s... Don't move.</color>");
+            timer.Once(_config.TeleportWarmupSeconds * 1000f, () => { if (session._pendingTeleport) { session._pendingTeleport = false; player.Teleport(pos.ToVector3()); PrintToChat(player, $"<color=#00FF88>Teleported to group home '{homeName}'.</color>"); } });
+        }
+
+        private void HandleGroupInfo(BasePlayer player, PlayerSession session)
+        {
+            if (!_groups.TryGetValue(player.userID, out var group)) { PrintToChat(player, "<color=#FF4444>You are not in a group.</color>"); return; }
+            PrintToChat(player, $"<color=#FFD700>═══ GROUP: {group.Name} ═══</color>");
+            PrintToChat(player, $"Leader: <color=#4DA6FF>{BasePlayer.Find(group.LeaderId.ToString())?.displayName ?? group.LeaderId.ToString()}</color>");
+            PrintToChat(player, $"Members ({group.Members.Count}):");
+            foreach (var mid in group.Members) { var m = BasePlayer.Find(mid.ToString()); PrintToChat(player, $"  {(m != null && m.IsConnected() ? "<color=#00FF88>●" : "<color=#888>○")}</color> {m?.displayName ?? mid.ToString()}"); }
+            PrintToChat(player, $"Created: {group.Created:yyyy-MM-dd}");
+        }
 
         private void TrackCommand(string cmd)
         {
