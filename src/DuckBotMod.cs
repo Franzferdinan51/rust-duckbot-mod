@@ -15,7 +15,7 @@ namespace Oxide.Plugins
 {
     [Info("RustDuckBot", "1.4.5", "Duckets")]
     [Description("AI-powered computer station with DuckBot. CCTV, security, base management, trading, automation, intel, and more.")]
-    public class RustDuckBot : Oxide.Game.Rust.RustPlugin
+    public class RustDuckBot : Oxide.Plugins.CSPlugin
     {
         // =====================================================================
         // CONFIGURATION
