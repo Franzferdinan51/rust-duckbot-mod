@@ -1375,7 +1375,7 @@ namespace Oxide.Plugins
         }
 
         // Block movement while at computer station (keeps player "seated")
-        private object CanClientMove(BasePlayer player, Proto.EntitySnapshot snapshot)
+        private object CanClientMove(BasePlayer player)
         {
             if (player == null) return null;
             var session = GetOrCreateSession(player);
@@ -3724,7 +3724,7 @@ namespace Oxide.Plugins
                     if (string.IsNullOrEmpty(targetName)) { PrintToChat(player, "Usage: /db tcmanage add <player>"); return; }
                     var target = FindPlayer(targetName);
                     if (target == null) { PrintToChat(player, "<color=#FF4444>Player not found:</color> " + targetName); return; }
-                    nearestTC.authorizedPlayers.Add(new ProtoBuf.PlayerNameID { userid = target.userID, username = target.displayName });
+                    nearestTC.authorizedPlayers.Add(new Facepunch.PlayerNameID { userid = target.userID, username = target.displayName });
                     nearestTC.SendNetworkUpdate();
                     PrintToChat(player, "<color=#00FF00>✅ Added to TC:</color> " + target.displayName);
                     break;
