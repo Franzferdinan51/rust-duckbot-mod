@@ -1,17 +1,19 @@
 # RustDuckBot
 
-> **v1.4.5** — AI-powered in-game terminal for Rust. Runs with or without an AI agent.
+> **v1.4.6** — AI-powered in-game terminal for Rust. Runs with or without an AI agent.
 
-RustDuckBot turns Rust's computer station into a full interactive AI terminal. When a player sits at a Computer Station item in-game, they get a CUI overlay panel — and every player gets 13 teleport commands, full moderation tools, economy rewards, combat intel, building helpers, and 176+ total commands. Powered by DuckBot, LM Studio, OpenAI, Claude, or OpenRouter.
+**⚠️ Note:** Due to Oxide.Compiler not exposing Rust game types (CCTVRCamera, ComputerStation, DamageType, etc.), all game hooks are disabled. The plugin loads and `/db` commands work, but real-time events (raids, door opens, player damage, etc.) won't trigger automatically. Use `/db help` for all commands.
 
-**WindowsGSM is the primary supported host path right now.** macOS and Linux are supported for development, local MCP agents, and non-Windows Rust hosts, but the setup notes below start with WindowsGSM because that is the main deployment target.
+RustDuckBot turns Rust's Computer Station into an interactive AI terminal. Every player gets 13 teleport commands, full moderation tools, AI chat (`/db ask`), and 176+ total commands via `/db`. Powered by DuckBot MCP, LM Studio, OpenAI, Claude, or OpenRouter.
+
+**WindowsGSM is the primary supported host path.**
 
 ---
 
 ## What's New in v1.4.x
 
-- **🖥 Real Computer Station integration** — hooks into `OnComputerStationUse`, `OnCCTVCameraUsed`, `OnPlayerInput` to detect when a player physically sits at a Computer Station in-game
-- **💬 In-terminal CUI chat screen** — full scrollable chat panel with timestamps, sender colors, input field, and quick-prompt buttons, rendered inside the game
+- **⚠️ Hooks disabled** — all Oxide game hooks disabled because `CCTVRCamera`, `ComputerStation`, `DamageType`, `Timer` constructor, and other Rust types are not available in Oxide.Compiler. The plugin still works for commands but won't auto-trigger on game events.
+- **🖥 Computer Station UI** — CUI overlay for players at Computer Stations
 - **🤖 5 AI backends** — DuckBot MCP, LM Studio (local), OpenAI, Anthropic/Claude, OpenRouter
 - **🛰 Full teleport system** — 13 teleport commands including tpr/tpa request flow, sethome (5 per player), town, bandit, back, random TP, and coordinates
 - **🛡 Moderation tools** — report system with queue, slay, respawn, player notes, admin whisper, mute list
@@ -19,9 +21,9 @@ RustDuckBot turns Rust's computer station into a full interactive AI terminal. W
 - **⚔️ Combat intel** — death history, killer lookup, weapon stats (16 weapons), item comparison, loot finder
 - **🏠 Building helpers** — TC scanner (200m), cupboard coverage checker, decay scan
 - **🔔 Notification system** — night alerts, event subscriptions, notification list/clear
-- **🔐 AI RCON access** — admin-gated MCP/RCON commands with an allowlist on both the MCP bridge and plugin side
-- **🎁 AI kit tools** — agents can list kits and admin-gate kit grants through MCP, while players can use `/db kit` in-game
-- **🎲 AI fun + helper tools** — dice rolls, 8-ball answers, and contextual Rust tips can be sent to players or global chat through the MCP bridge
+- **🔐 AI RCON access** — admin-gated MCP/RCON commands with an allowlist
+- **🎁 AI kit tools** — agents can list kits and admin-gate kit grants through MCP
+- **🎲 AI fun + helper tools** — dice rolls, 8-ball answers, and contextual Rust tips via MCP bridge
 
 ---
 
@@ -80,12 +82,11 @@ If LM Studio has API-key mode enabled, set `LMStudioApiKey`. Otherwise leave it 
 
 ## What It Does
 
-### 🖥 Computer Station Integration
+### 🖥 Computer Station Integration (UI only — hooks disabled)
 - CUI overlay appears when a player opens a Computer Station in-game
-- Detects `OnComputerStationUse`, `OnCCTVCameraUsed`, `OnPlayerInput` game hooks
-- Camera name auto-resolution via monument proximity (17 named monuments)
-- Real-time CCTV cycle detection (JUMP = next, DUCK = prev)
-- AI agent notified via MCP of: station open, camera viewed, CCTV cycle, monument camera events
+- Real-time CCTV detection is disabled (CCTVRCamera type not in Oxide compiler)
+- Use `/db cameras` to list cameras manually
+- Use `/db chat` to open the AI chat panel
 
 ### 💬 In-Terminal Chat
 - Full CUI chat panel — scrollable history with timestamps and sender colors
