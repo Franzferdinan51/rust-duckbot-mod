@@ -11,7 +11,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace RustDuckBot
+namespace Oxide.Plugins
 {
     [Info("RustDuckBot", "1.4.3", "Duckets")]
     [Description("AI-powered computer station with DuckBot. CCTV, security, base management, trading, automation, intel, and more.")]
@@ -6511,4 +6511,4 @@ Server config: CameraControl={cfg.EnableCameraControl}, RaidAlerts={cfg.EnableRa
         public Position3D(Vector3 v) { X = v.x; Y = v.y; Z = v.z; }
         public Vector3 ToVector3() => new Vector3(X, Y, Z);
     }
-} // namespace RustDuckBot
+} // namespace Oxide.Plugins
