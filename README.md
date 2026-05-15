@@ -143,7 +143,73 @@ Any interchangeable MCP-capable agent can use the tool surface. Regular player f
 
 ---
 
-## Quick Start
+## In-Game Role Separation
+
+### Regular User
+Regular users get gameplay help and convenience, but **no staff powers**.
+
+Examples:
+- `/db ask <msg>`
+- `/db chat`
+- `/db report <player> <reason>`
+- `/db mapintel`
+- `/db route <target>`
+- `/db brief`
+- `/db wipeprep`
+- `/db eventintel`
+- `/db players`, `/db player <name>`, `/db history`, `/db stats`
+- `/db kits`, `/db kit starter`
+- `/db time`, `/db weather`, `/db monuments`, `/db uptime`
+
+### VIP
+VIP is for supporters and convenience perks — **not moderation/admin authority**.
+
+VIP perks are things like:
+- extra teleport convenience where your permission config allows it (`tpr`, `tpa`, `home`, `town`, `bandit`, etc.)
+- supporter-level AI/intel convenience such as `/db teamintel`
+- daily/economy/intel perks where enabled
+- quality-of-life features that do not punish, ban, kick, lock, or administratively control other players/server state
+
+VIPs **do not** get:
+- kick
+- ban
+- mute
+- freeze
+- respawn others
+- admin RCON
+- automation management
+- lockdown
+- door/light/authorize staff-style controls
+
+### Mod
+Mods are the first real staff tier. They can investigate and intervene, but do not get the full destructive admin toolset.
+
+Mod commands include:
+- `/db reports`
+- `/db modreview <player>`
+- `/db kick <player> [reason]`
+- `/db mute <player>` / `/db unmute <player>` / `/db mutelist`
+- `/db freeze <player>`
+- `/db respawn <player>`
+- `/db notes <player> ...`
+- `/db adminmsg <player> <msg>`
+- `/db automation` / `/db rules` / `/db rule ...`
+- `/db door ...`, `/db light ...`, `/db authorize ...`
+
+### Admin
+Admins get the critical/high-impact commands.
+
+Admin commands include:
+- `/db admin <rcon_command>`
+- `/db ban <player> <reason> [duration]`
+- `/db unban <steamid>`
+- `/db heal <player>`
+- `/db give <player> <item> <qty>`
+- `/db tp <from> <to>`
+- `/db spawn <item> [qty]`
+- `/db lockdown start|stop|status`
+- other high-impact server/state changing operations
+
 
 ### 1. Copy the plugins
 ```bash
@@ -254,7 +320,7 @@ Player-safe MCP tools include `rust_roll_dice`, `rust_8ball`, and `rust_player_t
 
 ```
 rustduckbot.use          # Default — basic access
-rustduckbot.vip          # Camera PTZ, alerts, teleport (tpr/tpa/home/town/bandit/etc.)
+rustduckbot.vip          # Supporter perks / convenience only (not staff powers)
 rustduckbot.mod          # Player lookup, kick, report review, notes, activity review
 rustduckbot.admin        # Ban, slay, lockdown, spawn, give, automation changes
 rustduckbot.security     # Security system access

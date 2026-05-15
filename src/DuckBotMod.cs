@@ -2113,7 +2113,7 @@ namespace Oxide.Plugins
 
         private void ControlDoor(BasePlayer player, PlayerSession session, string args)
         {
-            if (!HasRoleOrHigher(session.Role, "vip")) { PrintToChat(player, "<color=#FF4444>VIP+ required</color>"); return; }
+            if (!HasRoleOrHigher(session.Role, "mod")) { PrintToChat(player, "<color=#FF4444>Mod+ required</color>"); return; }
 
             var parts = args.Split(new[] { ' ' }, 2);
             if (parts.Length < 2) { PrintToChat(player, "Usage: /db door <lock_id|position> lock/unlock/open/close"); return; }
@@ -2153,7 +2153,7 @@ namespace Oxide.Plugins
 
         private void ControlLight(BasePlayer player, PlayerSession session, string args)
         {
-            if (!HasRoleOrHigher(session.Role, "vip")) { PrintToChat(player, "<color=#FF4444>VIP+ required</color>"); return; }
+            if (!HasRoleOrHigher(session.Role, "mod")) { PrintToChat(player, "<color=#FF4444>Mod+ required</color>"); return; }
 
             var parts = args.Split(new[] { ' ' }, 2);
             if (parts.Length < 2) { PrintToChat(player, "Usage: /db light <id> on/off/toggle"); return; }
@@ -2236,7 +2236,7 @@ namespace Oxide.Plugins
 
         private void AuthorizePlayer(BasePlayer player, PlayerSession session, string args)
         {
-            if (!HasRoleOrHigher(session.Role, "vip")) { PrintToChat(player, "<color=#FF4444>VIP+ required</color>"); return; }
+            if (!HasRoleOrHigher(session.Role, "mod")) { PrintToChat(player, "<color=#FF4444>Mod+ required</color>"); return; }
             var parts = args.Split(new[] { ' ' }, 2);
             if (parts.Length == 0) { PrintToChat(player, "Usage: /db authorize <steamid> [name]"); return; }
             PrintToChat(player, $"<color=#00FF00>Authorize:</color> {parts[0]}");
