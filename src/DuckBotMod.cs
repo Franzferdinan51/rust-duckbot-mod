@@ -4731,9 +4731,14 @@ namespace Oxide.Plugins
             ShowShopHelpLegacy(player);
         }
 
-        private void ListShopLegacy(BasePlayer player)
+        private void ShowShopHelpLegacy(BasePlayer player)
         {
-            ShowShop(player, GetOrCreateSession(player));
+            PrintToChat(player, "<color=#FFD700>═══ Shop ═══</color>");
+            PrintToChat(player, "<color=#AAA>/db shop</color> — Browse market");
+            PrintToChat(player, "<color=#AAA>/db sell <item> <price></color> — List an item");
+            PrintToChat(player, "<color=#AAA>/db buy <item></color> — Buy from a listing");
+            PrintToChat(player, "<color=#AAA>/db listings</color> — View your listings");
+            PrintToChat(player, "<color=#AAA>/db price <item></color> — Check market prices");
         }
 
         private void AddShopListingLegacy(BasePlayer player, PlayerSession session, string itemName, string priceStr)
