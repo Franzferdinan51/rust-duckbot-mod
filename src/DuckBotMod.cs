@@ -5559,7 +5559,7 @@ namespace Oxide.Plugins
             var players = BasePlayer.activePlayerList;
             var playerList = players.Select(p => new { id = p.UserIDString, name = p.displayName, ping = 0, role = GetOrCreateSession(p).Role, connectedAt = GetOrCreateSession(p).SessionStart.ToString("o"), position = GetGridCoord(p.transform.position), nearestMonument = GetNearestMonument(p.transform.position) }).ToList();
 
-            var onlineNow = players.Select(p => p.userID).ToHashSet();
+            var onlineNow = new HashSet<ulong>(players.Select(p => p.userID));
             foreach (var p in players)
             {
                 if (!_knownOnlinePlayers.Contains(p.userID))
