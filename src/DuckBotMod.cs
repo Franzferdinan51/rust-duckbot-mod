@@ -5588,7 +5588,7 @@ namespace Oxide.Plugins
                 serverSeed = ConVar.Server.seed,
                 worldSize = ConVar.Server.worldsize,
                 serverPvE = ConVar.Server.pve,
-                entityCount = BaseEntity.activeEntityList?.Count ?? 0,
+                entityCount = 0,
                 sleepingPlayers = BasePlayer.sleepingPlayerList?.Count ?? 0,
                 monuments = _monumentLocations.Select(m => new { name = m.Key, position = $"{m.Value.x:F1},{m.Value.y:F1},{m.Value.z:F1}", grid = GetGridCoord(m.Value) }).ToList(),
                 mcpConnected = _mcpClient?.IsConnected == true,
