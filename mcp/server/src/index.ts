@@ -1042,7 +1042,8 @@ export async function handleToolCall(
       const limit = Math.min(optionalNumber(args, 'limit', 20), 100);
       const chat = state.chatHistory.filter((entry) => !playerId || entry.target === playerId || entry.sender === playerId).slice(-limit);
       const activity = state.activity.filter((entry) => !playerId || entry.playerId === playerId).slice(-limit);
-      return jsonResult({ chat, activity, guidance: 'Use for AI moderation of spam, harassment, scams, or suspicious coordination. Do not treat this as proof of cheating by itself.' });
+      const reports = state.activity.filter((entry) => entry.category === 'moderation' && entry.action === 'Report' && (!playerId || entry.details.toLowerCase().includes(playerId.toLowerCase()))).slice(-limit);
+      return jsonResult({ chat, activity, reports, guidance: 'Use for AI moderation of spam, harassment, scams, suspicious coordination, and player reports. Do not treat this as proof of cheating by itself.' });
     }
 
     case 'rust_rcon_command_catalog': {

@@ -74,7 +74,14 @@ namespace Oxide.Plugins
             public int MaxPlayerNotes = 20;
             public bool EnableReportSystem = true;
             public int ReportCooldownMinutes = 5;
-            // AFK / inactivity
+            public bool EnableAIModeration = true;
+            public bool EnableAutoModeration = false;
+            public int AutoModerationReportThreshold = 3;
+            public int AutoModerationKickThreshold = 4;
+            public int AutoModerationBanThreshold = 6;
+            public int AutoModerationWindowMinutes = 30;
+            public string AutoModerationBanDuration = "1d";
+
             public int AFKTimeoutMinutes = 10;
             public int AFKKickMinutes = 30;
             public bool AutoKickAFK = true;
@@ -1332,6 +1339,8 @@ namespace Oxide.Plugins
 
                 // === MODERATION ===
                 case "report": HandleReport(player, session, argStr); break;
+                case "reports": HandleReports(player, session, argStr); break;
+                case "modreview": HandleModerationReview(player, session, argStr); break;
                 case "slay": HandleSlay(player, session, argStr); break;
                 case "respawn": HandleRespawn(player, session, argStr); break;
                 case "notes": HandleNotes(player, session, argStr); break;
@@ -1595,6 +1604,7 @@ namespace Oxide.Plugins
             PrintToChat(player, "<color=#888>/db schedule</color> — Scheduled tasks");
 
             PrintToChat(player, "\n<color=#F39C12>━━━ AI TERMINAL ━━━</color>");
+            PrintToChat(player, "<color=#888>/db report <player> <reason></color> — Report bad actors");
             PrintToChat(player, "<color=#888>/db ask <question></color> — Ask AI anything");
             PrintToChat(player, "<color=#888>/db brief</color> — AI world brief");
             PrintToChat(player, "<color=#888>/db wipeprep</color> — AI wipe checklist");
@@ -1625,6 +1635,8 @@ namespace Oxide.Plugins
                 PrintToChat(player, "\n<color=#FF9900>━━━ MOD COMMANDS ━━━</color>");
                 PrintToChat(player, "<color=#888>/db kick <player> <reason></color> — Kick player");
                 PrintToChat(player, "<color=#888>/db mute <player></color> — Mute player");
+                PrintToChat(player, "<color=#888>/db reports</color> — Staff report queue");
+                PrintToChat(player, "<color=#888>/db modreview <player></color> — AI moderation review");
                 PrintToChat(player, "<color=#888>/db unmute <player></color> — Unmute player");
                 PrintToChat(player, "<color=#888>/db freeze <player></color> — Freeze player");
                 PrintToChat(player, "<color=#888>/db msg <player> <msg></color> — Private message");
@@ -3611,6 +3623,8 @@ namespace Oxide.Plugins
                 Reason = reason, Time = DateTime.Now, Status = "pending"
             };
             _reportQueue.Add(report);
+            LogActivity("moderation", "Report", $"{player.displayName} reported {report.TargetName}: {reason}", player.UserIDString, player.displayName);
+            EvaluateAutoModeration(report);
             session.LastReportSent = DateTime.Now;
             PrintToChat(player, $"<color=#00FF88>Report submitted.</color> ID: <color=#FFD700>{report.Id}</color>");
             foreach (var p in BasePlayer.activePlayerList)
@@ -3621,21 +3635,68 @@ namespace Oxide.Plugins
             }
         }
 
-        private void HandleSlay(BasePlayer player, PlayerSession session, string args)
+        private void HandleReports(BasePlayer player, PlayerSession session, string args)
         {
-            if (!HasRoleOrHigher(session.Role, "admin")) { PrintToChat(player, "<color=#FF4444>No permission.</color>"); return; }
-            var parts = SplitArgs(args, 2);
-            var targetName = parts[0].Trim();
-            var reason = parts.Length > 1 ? parts[1].Trim() : "Slain by admin";
-            if (string.IsNullOrEmpty(targetName)) { PrintToChat(player, "<color=#FFD700>Usage:</color> /db slay <player> [reason]"); return; }
-            var target = FindPlayer(targetName);
-            if (target == null) { PrintToChat(player, $"<color=#FF4444>Player not found:</color> {targetName}"); return; }
-            target.Hurt(9999f);
-            Broadcast(player, session, $"<color=#FF4444>{target.displayName} was slain:</color> {reason}");
+            if (!HasRoleOrHigher(session.Role, "mod")) { PrintToChat(player, "<color=#FF4444>Mod required</color>"); return; }
+            var reports = _reportQueue.OrderByDescending(r => r.Time).Take(15).ToList();
+            PrintToChat(player, $"<color=#FFD700>═══ REPORTS ({reports.Count}) ═══</color>");
+            if (reports.Count == 0) { PrintToChat(player, "<color=#888>No reports.</color>"); return; }
+            foreach (var report in reports)
+                PrintToChat(player, $"  <color=#FF4444>#{report.Id}</color> {report.ReporterName} -> {report.TargetName} | {report.Status} | {report.Reason}");
         }
 
-        private void HandleRespawn(BasePlayer player, PlayerSession session, string args)
+        private void HandleModerationReview(BasePlayer player, PlayerSession session, string args)
         {
+            if (!HasRoleOrHigher(session.Role, "mod")) { PrintToChat(player, "<color=#FF4444>Mod required</color>"); return; }
+            if (!_config.EnableAIModeration) { PrintToChat(player, "<color=#FF4444>AI moderation is disabled.</color>"); return; }
+            var targetName = (args ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(targetName)) { PrintToChat(player, "Usage: /db modreview <player>"); return; }
+            var target = FindPlayer(targetName);
+            var reports = _reportQueue.Where(r => ContainsIgnoreCase(r.TargetName, targetName) || (target != null && r.TargetId == target.userID)).OrderByDescending(r => r.Time).Take(6).ToList();
+            var activity = _activityLog.Where(a => ContainsIgnoreCase(a.PlayerName, targetName) || (target != null && a.PlayerId == target.UserIDString)).OrderByDescending(a => a.Time).Take(10).ToList();
+            var reportSummary = reports.Count == 0 ? "none" : string.Join(" | ", reports.Select(r => $"{r.Time:MM/dd HH:mm}: {r.ReporterName} -> {r.Reason}"));
+            var activitySummary = activity.Count == 0 ? "none" : string.Join(" | ", activity.Select(a => $"{a.Time:MM/dd HH:mm}: {a.Category}/{a.Action} {a.Details}"));
+            var tracked = target != null && _trackedPlayers.TryGetValue(target.UserIDString, out var trackedPlayer) ? trackedPlayer : null;
+            var prompt = $"Review Rust moderation context for target {targetName}. Reports: {reportSummary}. Activity: {activitySummary}. Threat level: {tracked?.ThreatLevel ?? "unknown"}. Kills: {tracked?.Kills ?? 0}. Deaths: {tracked?.Deaths ?? 0}. Sessions: {tracked?.SessionCount ?? 0}. Give a concise moderation review with risk level, evidence summary, and recommended action chosen from: observe, warn, mute, kick, ban. Make clear this is advisory unless auto-moderation rules independently trigger.";
+            PrintToChat(player, "<color=#FFD700>═══ AI MOD REVIEW ═══</color>");
+            var response = GetAssistantResponse(player, session, prompt, false);
+            PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {response}");
+        }
+
+        private void EvaluateAutoModeration(ReportEntry latestReport)
+        {
+            if (!_config.EnableAutoModeration || latestReport == null) return;
+            var windowStart = DateTime.Now.AddMinutes(-_config.AutoModerationWindowMinutes);
+            var reports = _reportQueue.Where(r => r.TargetName == latestReport.TargetName && r.Time >= windowStart).ToList();
+            var reportCount = reports.Count;
+            if (reportCount < _config.AutoModerationReportThreshold) return;
+
+            var target = FindPlayer(latestReport.TargetName);
+            if (target == null) return;
+
+            var tracked = _trackedPlayers.TryGetValue(target.UserIDString, out var trackedPlayer) ? trackedPlayer : null;
+            var highThreat = tracked != null && (tracked.ThreatLevel == "high" || tracked.ThreatLevel == "medium");
+            var severeReport = reports.Any(r => ContainsIgnoreCase(r.Reason, "hack") || ContainsIgnoreCase(r.Reason, "cheat") || ContainsIgnoreCase(r.Reason, "aimbot") || ContainsIgnoreCase(r.Reason, "esp"));
+
+            if (reportCount >= _config.AutoModerationBanThreshold && (highThreat || severeReport))
+            {
+                var reason = $"Auto-ban: {reportCount} reports in {_config.AutoModerationWindowMinutes}m";
+                Server.Command($"banid {target.UserIDString} \"{reason}\" {_config.AutoModerationBanDuration}");
+                target.Kick(reason);
+                LogActivity("moderation", "AutoBan", $"{target.displayName}: {reason}", target.UserIDString, target.displayName);
+                foreach (var report in reports) { report.Status = "resolved"; report.ReviewedBy = "auto-ban"; report.ReviewedAt = DateTime.Now; }
+                return;
+            }
+
+            if (reportCount >= _config.AutoModerationKickThreshold)
+            {
+                var reason = $"Auto-kick: {reportCount} reports in {_config.AutoModerationWindowMinutes}m";
+                target.Kick(reason);
+                LogActivity("moderation", "AutoKick", $"{target.displayName}: {reason}", target.UserIDString, target.displayName);
+                foreach (var report in reports) if (report.Status == "pending") { report.Status = "reviewed"; report.ReviewedBy = "auto-kick"; report.ReviewedAt = DateTime.Now; }
+            }
+        }
+
             if (!HasRoleOrHigher(session.Role, "mod")) { PrintToChat(player, "<color=#FF4444>No permission.</color>"); return; }
             if (string.IsNullOrWhiteSpace(args)) { PrintToChat(player, "<color=#FFD700>Usage:</color> /db respawn <player>"); return; }
             var target = FindPlayer(args);
