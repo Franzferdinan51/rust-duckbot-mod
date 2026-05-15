@@ -1285,7 +1285,12 @@ namespace Oxide.Plugins
                 switch (subCmd)
                 {
                 // === HELP & INFO ===
-                case "help": case "h": ShowHelp(player, session); break;
+                case "help": case "h":
+                    var helpArgs = args.Length > 1 ? args[1].ToLowerInvariant() : "";
+                    if (helpArgs == "2") ShowHelpPage2(player, session);
+                    else if (helpArgs == "3") ShowHelpPage3(player, session);
+                    else ShowHelp(player, session);
+                    break;
                 case "terminal": case "term": case "t": ShowTerminal(player, session); break;
                 case "info": case "server": ShowServerInfo(player, session); break;
                 case "whoami": WhoAmI(player, session); break;
@@ -1577,82 +1582,137 @@ namespace Oxide.Plugins
         private void ShowHelp(BasePlayer player, PlayerSession session)
         {
             ShowRecoveryNotice(player);
-            PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
-            PrintToChat(player, "<color=#FFD700>      RUSTDUCKBOT v1.4.5 - HELP</color>");
-            PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
-            PrintToChat(player, "<color=#FFD700>/db terminal</color> — Open AI computer terminal");
-            PrintToChat(player, "<color=#FFD700>/db help</color> — Show this help");
-            PrintToChat(player, "<color=#888>/db whoami</color> — Your role & permissions");
-            PrintToChat(player, "<color=#888>/db server</color> — Server information");
+            timer.Once(0.1f, () => PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>"));
+            timer.Once(0.15f, () => PrintToChat(player, "<color=#FFD700>    RUSTDUCKBOT v1.4.5 - HELP (1/3)</color>"));
+            timer.Once(0.2f, () => PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>"));
+            timer.Once(0.25f, () => PrintToChat(player, "<color=#FFD700>/db terminal</color> — Open AI computer terminal"));
+            timer.Once(0.3f, () => PrintToChat(player, "<color=#FFD700>/db help</color> — Show this help"));
+            timer.Once(0.35f, () => PrintToChat(player, "<color=#888>/db whoami</color> — Your role & permissions"));
+            timer.Once(0.4f, () => PrintToChat(player, "<color=#888>/db server</color> — Server information"));
+            timer.Once(0.45f, () => PrintToChat(player, "\n<color=#00BFFF>━━━ CCTV SYSTEM ━━━</color>"));
+            timer.Once(0.5f, () => PrintToChat(player, "<color=#888>/db cameras</color> — List all CCTV cameras"));
+            timer.Once(0.55f, () => PrintToChat(player, "<color=#888>/db view <id></color> — View camera feed"));
+            timer.Once(0.6f, () => PrintToChat(player, "<color=#888>/db control <dir></color> — PTZ control"));
+            timer.Once(0.65f, () => PrintToChat(player, "<color=#888>/db recordings</color> — View recent recordings"));
+            timer.Once(0.7f, () => PrintToChat(player, "\n<color=#FF6B6B>━━━ SECURITY ━━━</color>"));
+            timer.Once(0.75f, () => PrintToChat(player, "<color=#888>/db security</color> — Security dashboard"));
+            timer.Once(0.8f, () => PrintToChat(player, "<color=#888>/db alerts</color> — View active alerts"));
+            timer.Once(0.85f, () => PrintToChat(player, "<color=#888>/db ack <id></color> — Acknowledge alert"));
+            timer.Once(0.9f, () => PrintToChat(player, "<color=#888>/db access</color> — Access log"));
+            timer.Once(0.95f, () => PrintToChat(player, "<color=#888>/db scan</color> — Scan nearby area"));
+            timer.Once(1.0f, () => PrintToChat(player, "<color=#888>/db lockdown</color> — Emergency lockdown"));
+            timer.Once(1.05f, () => PrintToChat(player, "<color=#888>/db sos</color> — Send emergency alert"));
+            timer.Once(1.1f, () => PrintToChat(player, "\n<color=#9B59B6>━━━ BASE MANAGEMENT ━━━</color>"));
+            timer.Once(1.15f, () => PrintToChat(player, "<color=#888>/db base</color> — Base information"));
+            timer.Once(1.2f, () => PrintToChat(player, "<color=#888>/db doors</color> — List doors"));
+            timer.Once(1.25f, () => PrintToChat(player, "<color=#888>/db lights</color> — List lights"));
+            timer.Once(1.3f, () => PrintToChat(player, "<color=#888>/db turrets</color> — List turrets"));
+            timer.Once(1.35f, () => PrintToChat(player, "<color=#888>/db decay</color> — Decay status"));
+            timer.Once(1.4f, () => PrintToChat(player, "<color=#888>/db upkeep</color> — Upkeep info"));
+            timer.Once(1.45f, () => PrintToChat(player, "<color=#888>/db auth</color> — TC auth list"));
+            timer.Once(1.5f, () => PrintToChat(player, "\n<color=#1ABC9C>━━━ TRADING ━━━</color>"));
+            timer.Once(1.55f, () => PrintToChat(player, "<color=#888>/db shop list|add|buy|remove</color> — Player shop"));
+            timer.Once(1.6f, () => PrintToChat(player, "<color=#888>/db shop exchange scrap|rp <amt></color> — Exchange scrap/RP"));
+            timer.Once(1.65f, () => PrintToChat(player, "<color=#888>/db vending</color> — Manage vending machines"));
+            timer.Once(1.7f, () => PrintToChat(player, "\n<color=#3498DB>━━━ INTEL ━━━</color>"));
+            timer.Once(1.75f, () => PrintToChat(player, "<color=#888>/db players</color> — Online players"));
+            timer.Once(1.8f, () => PrintToChat(player, "<color=#888>/db player <name></color> — Player details"));
+            timer.Once(1.85f, () => PrintToChat(player, "<color=#888>/db radar</color> — Nearby players"));
+            timer.Once(1.9f, () => PrintToChat(player, "<color=#888>/db grid</color> — Grid map"));
+            timer.Once(1.95f, () => PrintToChat(player, "<color=#888>/db mapintel</color> — AI map briefing"));
+            timer.Once(2.0f, () => PrintToChat(player, "<color=#888>/db route <target></color> — AI route advice"));
+            timer.Once(2.05f, () => PrintToChat(player, "<color=#FFD700>/db help 2</color> — Next page..."));
+        }
 
-            PrintToChat(player, "\n<color=#00BFFF>━━━ CCTV SYSTEM ━━━</color>");
-            PrintToChat(player, "<color=#888>/db cameras</color> — List all CCTV cameras");
-            PrintToChat(player, "<color=#888>/db view <id></color> — View camera feed");
-            PrintToChat(player, "<color=#888>/db control <dir></color> — PTZ control (left/right/up/down/zoom/reset)");
-            PrintToChat(player, "<color=#888>/db recordings</color> — View recent recordings");
+        private void ShowHelpPage2(BasePlayer player, PlayerSession session)
+        {
+            timer.Once(0.1f, () => PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>"));
+            timer.Once(0.15f, () => PrintToChat(player, "<color=#FFD700>    RUSTDUCKBOT v1.4.5 - HELP (2/3)</color>"));
+            timer.Once(0.2f, () => PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>"));
+            timer.Once(0.25f, () => PrintToChat(player, "\n<color=#F39C12>━━━ AI TERMINAL ━━━</color>"));
+            timer.Once(0.3f, () => PrintToChat(player, "<color=#888>/db ask <question></color> — Ask AI anything"));
+            timer.Once(0.35f, () => PrintToChat(player, "<color=#888>/db brief</color> — AI world brief"));
+            timer.Once(0.4f, () => PrintToChat(player, "<color=#888>/db wipeprep</color> — AI wipe checklist"));
+            timer.Once(0.45f, () => PrintToChat(player, "<color=#888>/db eventintel</color> — AI event guidance"));
+            timer.Once(0.5f, () => PrintToChat(player, "<color=#888>/db analyze</color> — Analyze your base"));
+            timer.Once(0.55f, () => PrintToChat(player, "<color=#888>/db recommend</color> — Get recommendations"));
+            timer.Once(0.6f, () => PrintToChat(player, "<color=#888>/db search <query></color> — Search knowledge"));
+            timer.Once(0.65f, () => PrintToChat(player, "\n<color=#888>━━━ GAMES & FUN ━━━</color>"));
+            timer.Once(0.7f, () => PrintToChat(player, "<color=#888>/db roll <max></color> — Roll dice"));
+            timer.Once(0.75f, () => PrintToChat(player, "<color=#888>/db flip</color> — Flip coin"));
+            timer.Once(0.8f, () => PrintToChat(player, "<color=#888>/db 8ball <question></color> — Magic 8 ball"));
+            timer.Once(0.85f, () => PrintToChat(player, "<color=#888>/db rps rock|paper|scissors</color> — RPS"));
+            timer.Once(0.9f, () => PrintToChat(player, "<color=#888>/db joke</color> — Random joke"));
+            timer.Once(0.95f, () => PrintToChat(player, "<color=#888>/db fortune</color> — Daily fortune"));
+            timer.Once(1.0f, () => PrintToChat(player, "<color=#888>/db slots</color> — Slot machine"));
+            timer.Once(1.05f, () => PrintToChat(player, "<color=#888>/db quote</color> — Random quote"));
+            timer.Once(1.1f, () => PrintToChat(player, "\n<color=#FFD700>━━━ ECONOMY ━━━</color>"));
+            timer.Once(1.15f, () => PrintToChat(player, "<color=#888>/db daily</color> — Claim daily reward"));
+            timer.Once(1.2f, () => PrintToChat(player, "<color=#888>/db kits</color> — Available kits"));
+            timer.Once(1.25f, () => PrintToChat(player, "<color=#888>/db guess join <bet></color> — Number guessing game"));
+            timer.Once(1.3f, () => PrintToChat(player, "<color=#888>/db lucky</color> — Lucky block (VIP)"));
+            timer.Once(1.35f, () => PrintToChat(player, "\n<color=#888>━━━ EVENTS (MOD+) ━━━</color>"));
+            timer.Once(1.4f, () => PrintToChat(player, "<color=#888>/db event start coinflip|jackpot|scavenger|dropparty</color>"));
+            timer.Once(1.45f, () => PrintToChat(player, "<color=#888>/db event list|join</color> — List/join active events"));
+            timer.Once(1.5f, () => PrintToChat(player, "\n<color=#888>━━━ ACTIVITY & CHAT ━━━</color>"));
+            timer.Once(1.55f, () => PrintToChat(player, "<color=#888>/db activity</color> — Recent activity"));
+            timer.Once(1.6f, () => PrintToChat(player, "<color=#888>/db report <player> <reason></color> — Report bad actors"));
+            timer.Once(1.65f, () => PrintToChat(player, "<color=#888>/db say <msg></color> — Chat with AI"));
+            timer.Once(1.7f, () => PrintToChat(player, "<color=#FFD700>/db help 3</color> — Next page..."));
+        }
 
-            PrintToChat(player, "\n<color=#FF6B6B>━━━ SECURITY ━━━</color>");
-            PrintToChat(player, "<color=#888>/db security</color> — Security dashboard");
-            PrintToChat(player, "<color=#888>/db alerts</color> — View active alerts");
-            PrintToChat(player, "<color=#888>/db ack <id></color> — Acknowledge alert");
-            PrintToChat(player, "<color=#888>/db access</color> — Access log");
-            PrintToChat(player, "<color=#888>/db scan</color> — Scan nearby area");
-            PrintToChat(player, "<color=#888>/db lockdown</color> — Emergency lockdown");
-            PrintToChat(player, "<color=#888>/db sos</color> — Send emergency alert");
-
-            PrintToChat(player, "\n<color=#9B59B6>━━━ BASE MANAGEMENT ━━━</color>");
-            PrintToChat(player, "<color=#888>/db base</color> — Base information");
-            PrintToChat(player, "<color=#888>/db doors</color> — List doors");
-            PrintToChat(player, "<color=#888>/db lights</color> — List lights");
-            PrintToChat(player, "<color=#888>/db turrets</color> — List turrets");
-            PrintToChat(player, "<color=#888>/db decay</color> — Decay status");
-            PrintToChat(player, "<color=#888>/db upkeep</color> — Upkeep info");
-            PrintToChat(player, "<color=#888>/db auth</color> — TC auth list");
-
-            PrintToChat(player, "\n<color=#3498DB>━━━ TRADING ━━━</color>");
-            PrintToChat(player, "<color=#888>/db shop</color> — Browse market");
-            PrintToChat(player, "<color=#888>/db sell <item> <price></color> — Sell item");
-            PrintToChat(player, "<color=#888>/db buy <item></color> — Buy item");
-            PrintToChat(player, "<color=#888>/db price <item></color> — Check prices");
-            PrintToChat(player, "<color=#888>/db vending</color> — Manage vending machines");
-
-            PrintToChat(player, "\n<color=#1ABC9C>━━━ INTEL ━━━</color>");
-            PrintToChat(player, "<color=#888>/db players</color> — Online players");
-            PrintToChat(player, "<color=#888>/db player <name></color> — Player details");
-            PrintToChat(player, "<color=#888>/db track <name></color> — Track a player");
-            PrintToChat(player, "<color=#888>/db history</color> — Your chat history");
-            PrintToChat(player, "<color=#888>/db playerhistory <name></color> — Player chat/activity history");
-            PrintToChat(player, "<color=#888>/db leaderboard</color> — Top players");
-            PrintToChat(player, "<color=#888>/db stats</color> — Player statistics");
-            PrintToChat(player, "<color=#888>/db radar</color> — Nearby players");
-            PrintToChat(player, "<color=#888>/db grid</color> — Grid map");
-            PrintToChat(player, "<color=#888>/db mapintel</color> — AI map briefing");
-            PrintToChat(player, "<color=#888>/db route <target></color> — AI route advice");
-            PrintToChat(player, "<color=#888>/db mark <name></color> — Place marker");
-            PrintToChat(player, "<color=#888>/db near <radius></color> — Find nearby players");
-            PrintToChat(player, "<color=#888>/db raiders</color> — Active raiders");
-            PrintToChat(player, "<color=#888>/db raid</color> — Raid history");
-
-            PrintToChat(player, "\n<color=#E67E22>━━━ AUTOMATION ━━━</color>");
-            PrintToChat(player, "<color=#888>/db automation</color> — Automation dashboard");
-            PrintToChat(player, "<color=#888>/db rules</color> — Automation rules");
-            PrintToChat(player, "<color=#888>/db schedule</color> — Scheduled tasks");
-
-            PrintToChat(player, "\n<color=#F39C12>━━━ AI TERMINAL ━━━</color>");
-            PrintToChat(player, "<color=#888>/db report <player> <reason></color> — Report bad actors");
-            PrintToChat(player, "<color=#888>/db ask <question></color> — Ask AI anything");
-            PrintToChat(player, "<color=#888>/db brief</color> — AI world brief");
-            PrintToChat(player, "<color=#888>/db wipeprep</color> — AI wipe checklist");
-            PrintToChat(player, "<color=#888>/db eventintel</color> — AI event guidance");
-            PrintToChat(player, "<color=#888>/db teamintel</color> — AI team briefing (VIP+)");
-            PrintToChat(player, "<color=#888>/db analyze</color> — Analyze your base");
-            PrintToChat(player, "<color=#888>/db recommend</color> — Get recommendations");
-            PrintToChat(player, "<color=#888>/db search <query></color> — Search knowledge");
-
-            PrintToChat(player, "\n<color=#888>━━━ ACTIVITY & CHAT ━━━</color>");
-            PrintToChat(player, "<color=#888>/db activity</color> — Recent activity");
-            PrintToChat(player, "<color=#888>/db broadcast <msg></color> — Broadcast (admin)");
-            PrintToChat(player, "<color=#888>/db say <msg></color> — Chat with AI");
+        private void ShowHelpPage3(BasePlayer player, PlayerSession session)
+        {
+            var isVip = HasRoleOrHigher(session.Role, "vip");
+            var isMod = HasRoleOrHigher(session.Role, "mod");
+            var isAdmin = HasRoleOrHigher(session.Role, "admin");
+            timer.Once(0.1f, () => PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>"));
+            timer.Once(0.15f, () => PrintToChat(player, "<color=#FFD700>    RUSTDUCKBOT v1.4.5 - HELP (3/3)</color>"));
+            timer.Once(0.2f, () => PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>"));
+            if (isVip)
+            {
+                timer.Once(0.25f, () => PrintToChat(player, "\n<color=#00FF00>━━━ VIP COMMANDS ━━━</color>"));
+                timer.Once(0.3f, () => PrintToChat(player, "<color=#888>/db door <id> lock/unlock</color> — Control doors"));
+                timer.Once(0.35f, () => PrintToChat(player, "<color=#888>/db light <id> on/off</color> — Control lights"));
+                timer.Once(0.4f, () => PrintToChat(player, "<color=#888>/db time</color> — Game time & weather"));
+                timer.Once(0.45f, () => PrintToChat(player, "<color=#888>/db monuments</color> — Monument map"));
+                timer.Once(0.5f, () => PrintToChat(player, "<color=#888>/db loot <type></color> — Loot locations"));
+                timer.Once(0.55f, () => PrintToChat(player, "<color=#888>/db teamintel</color> — AI team briefing"));
+                timer.Once(0.6f, () => PrintToChat(player, "<color=#888>/db lucky</color> — Lucky block spin"));
+            }
+            if (isMod)
+            {
+                timer.Once(0.65f, () => PrintToChat(player, "\n<color=#FF9900>━━━ MOD COMMANDS ━━━</color>"));
+                timer.Once(0.7f, () => PrintToChat(player, "<color=#888>/db kick <player> <reason></color> — Kick player"));
+                timer.Once(0.75f, () => PrintToChat(player, "<color=#888>/db mute <player></color> — Mute player"));
+                timer.Once(0.8f, () => PrintToChat(player, "<color=#888>/db reports</color> — Staff report queue"));
+                timer.Once(0.85f, () => PrintToChat(player, "<color=#888>/db modreview <player></color> — AI moderation review"));
+                timer.Once(0.9f, () => PrintToChat(player, "<color=#888>/db unmute <player></color> — Unmute player"));
+                timer.Once(0.95f, () => PrintToChat(player, "<color=#888>/db freeze <player></color> — Freeze player"));
+                timer.Once(1.0f, () => PrintToChat(player, "<color=#888>/db msg <player> <msg></color> — Private message"));
+                timer.Once(1.05f, () => PrintToChat(player, "<color=#888>/db team <msg></color> — Team message"));
+                timer.Once(1.1f, () => PrintToChat(player, "<color=#888>/db event start|list|join</color> — Server events"));
+            }
+            if (isAdmin)
+            {
+                timer.Once(1.15f, () => PrintToChat(player, "\n<color=#FF4444>━━━ ADMIN COMMANDS ━━━</color>"));
+                timer.Once(1.2f, () => PrintToChat(player, "<color=#888>/db status</color> — Server status"));
+                timer.Once(1.25f, () => PrintToChat(player, "<color=#888>/db pve on|off</color> — Toggle PvE mode"));
+                timer.Once(1.3f, () => PrintToChat(player, "<color=#888>/db ban <player> <reason></color> — Ban player"));
+                timer.Once(1.35f, () => PrintToChat(player, "<color=#888>/db unban <steamid></color> — Unban player"));
+                timer.Once(1.4f, () => PrintToChat(player, "<color=#888>/db admin <cmd></color> — Run RCON command"));
+                timer.Once(1.45f, () => PrintToChat(player, "<color=#888>/db heal <player></color> — Heal player"));
+                timer.Once(1.5f, () => PrintToChat(player, "<color=#888>/db give <player> <item> <qty></color> — Give items"));
+                timer.Once(1.55f, () => PrintToChat(player, "<color=#888>/db tp <from> <to></color> — Teleport"));
+                timer.Once(1.6f, () => PrintToChat(player, "<color=#888>/db spawn <item> <qty></color> — Spawn item"));
+                timer.Once(1.65f, () => PrintToChat(player, "<color=#888>/db broadcast <msg></color> — Server broadcast"));
+                timer.Once(1.7f, () => PrintToChat(player, "<color=#888>/db wipekits</color> — Reset all kit cooldowns"));
+                timer.Once(1.75f, () => PrintToChat(player, "<color=#888>/db backup</color> — Trigger server save/backup"));
+                timer.Once(1.8f, () => PrintToChat(player, "<color=#888>/db settings</color> — Server settings"));
+                timer.Once(1.85f, () => PrintToChat(player, "<color=#888>/db showautomation</color> — Show automation panel"));
+            }
+            timer.Once(1.9f, () => PrintToChat(player, "\n<color=#FFD700>Use /db help 2 or /db help 3 to see all pages.</color>"));
+        }
 
             if (HasRoleOrHigher(session.Role, "vip"))
             {
