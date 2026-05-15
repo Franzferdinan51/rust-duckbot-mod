@@ -6927,8 +6927,8 @@ namespace Oxide.Plugins
                 if (!string.IsNullOrEmpty(_lmKey))
                     wb.Headers["Authorization"] = $"Bearer {_lmKey}";
 
-                var raw = wb.UploadString(ChatCompletionsUrl(_lmUrl), "POST",
-                    SimpleJson.Serialize(new { model = _lmModel, messages = BuildMessages(message, history, _systemPrompt), max_tokens = 600, stream = false }));
+                var payload = new Dictionary<string, object> { { "model", _lmModel }, { "messages", BuildMessages(message, history, _systemPrompt) }, { "max_tokens", 600 } };
+                var raw = wb.UploadString(ChatCompletionsUrl(_lmUrl), "POST", SimpleJson.Serialize(payload));
 
                 var content = ExtractOpenAIContent(raw);
                 return content ?? "No response from local AI.";
