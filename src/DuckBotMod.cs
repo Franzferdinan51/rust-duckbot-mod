@@ -4567,7 +4567,7 @@ namespace Oxide.Plugins
             var max = 100;
             if (!string.IsNullOrEmpty(args) && int.TryParse(args, out var m)) max = Math.Min(m, 10000);
             var roll = new System.Random().Next(1, max + 1);
-            var aiNarr = GetAssistantResponse(player, session, $"A player rolled {roll} out of {max} in Rust. Give a short dramatic reaction in 1 sentence.", null);
+            var aiNarr = GetAssistantResponse(player.displayName, session.Role, $"A player rolled {roll} out of {max} in Rust. Give a short dramatic reaction in 1 sentence.", null);
             var narr = (!string.IsNullOrEmpty(aiNarr) && !aiNarr.StartsWith("?")) ? aiNarr : $"Rolled {roll} (1-{max})";
             PrintToChat(player, $"<color=#FFD700>DICE:</color> {narr}");
         }
@@ -4575,7 +4575,7 @@ namespace Oxide.Plugins
         private void FlipCoin(BasePlayer player, PlayerSession session)
         {
             var result = new System.Random().Next(2) == 0 ? "HEADS" : "TAILS";
-            var aiNarr = GetAssistantResponse(player, session, $"A coin flip in Rust came up {result}. Give a short dramatic reaction in 1 sentence.", null);
+            var aiNarr = GetAssistantResponse(player.displayName, session.Role, $"A coin flip in Rust came up {result}. Give a short dramatic reaction in 1 sentence.", null);
             var narr = (!string.IsNullOrEmpty(aiNarr) && !aiNarr.StartsWith("?")) ? aiNarr : result;
             PrintToChat(player, $"<color=#FFD700>COIN:</color> {narr}");
         }
@@ -4583,7 +4583,7 @@ namespace Oxide.Plugins
         private void Magic8Ball(BasePlayer player, PlayerSession session, string question)
         {
             if (string.IsNullOrWhiteSpace(question)) { PrintToChat(player, "Usage: /db 8ball <question>"); return; }
-            var aiAnswer = GetAssistantResponse(player, session, $"Player asked: '{question}'. You are a magic 8-ball. Give a mysterious, short answer in 1-3 words.", null);
+            var aiAnswer = GetAssistantResponse(player.displayName, session.Role, $"Player asked: '{question}'. You are a magic 8-ball. Give a mysterious, short answer in 1-3 words.", null);
             var answer = (!string.IsNullOrEmpty(aiAnswer) && !aiAnswer.StartsWith("?")) ? aiAnswer.Trim() : "Ask again later";
             PrintToChat(player, $"<color=#FFD700>8BALL:</color> {answer}");
         }
@@ -4599,7 +4599,7 @@ namespace Oxide.Plugins
             var botChoice = new System.Random().Next(3);
 
             var result = playerChoice == botChoice ? "DRAW" : (playerChoice == 0 && botChoice == 2) || (playerChoice == 1 && botChoice == 0) || (playerChoice == 2 && botChoice == 1) ? "YOU WIN" : "YOU LOSE";
-            var aiNarr = GetAssistantResponse(player, session, $"RPS: Player chose {choice}, Bot chose {choices[botChoice]}. Result: {result}. Give a short dramatic 1-sentence narration.", null);
+            var aiNarr = GetAssistantResponse(player.displayName, session.Role, $"RPS: Player chose {choice}, Bot chose {choices[botChoice]}. Result: {result}. Give a short dramatic 1-sentence narration.", null);
             var narr = (!string.IsNullOrEmpty(aiNarr) && !aiNarr.StartsWith("?")) ? aiNarr : $"You: {choice.ToUpper()} | Bot: {choices[botChoice].ToUpper()} -- {result}";
             PrintToChat(player, $"<color=#FFD700>RPS:</color> {narr}");
         }
@@ -4818,7 +4818,7 @@ namespace Oxide.Plugins
             var r = new System.Random();
             var spin = new[] { icons[r.Next(icons.Length)], icons[r.Next(icons.Length)], icons[r.Next(icons.Length)] };
             var outcome = spin[0] == spin[1] && spin[1] == spin[2] ? "TRIPLE JACKPOT" : spin[0] == spin[1] || spin[1] == spin[2] || spin[0] == spin[2] ? "PAIR" : "NO MATCH";
-            var aiNarr = GetAssistantResponse(player, session, $"Slots: [{spin[0]}] [{spin[1]}] [{spin[2]}]. Result: {outcome}. Give a short dramatic 1-sentence narration.", null);
+            var aiNarr = GetAssistantResponse(player.displayName, session.Role, $"Slots: [{spin[0]}] [{spin[1]}] [{spin[2]}]. Result: {outcome}. Give a short dramatic 1-sentence narration.", null);
             var narr = (!string.IsNullOrEmpty(aiNarr) && !aiNarr.StartsWith("?")) ? aiNarr : $"[{spin[0]}] [{spin[1]}] [{spin[2]}] -- {outcome}";
             PrintToChat(player, $"<color=#FFD700>SLOTS:</color> {narr}");
         }
