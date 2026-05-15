@@ -96,7 +96,9 @@ namespace Oxide.Plugins
             public string TelegramBotName = "RustDuckBot";
             public bool TelegramPlayerJoinLeave = true;
             public bool TelegramDeaths = true;
+            public bool TelegramRaidAlerts = false;
             public bool TelegramEventBroadcasts = true;
+            public bool TelegramAIModeration = true;
             public int AutoModerationKickThreshold = 4;
             public int AutoModerationBanThreshold = 6;
             public int AutoModerationWindowMinutes = 30;
@@ -2228,7 +2230,7 @@ namespace Oxide.Plugins
             if (eventType == "moderation" && (_config.DiscordAIModeration || _config.TelegramAIModeration)) shouldNotify = true;
             if (!shouldNotify) return;
             // Add AI narration if available
-            if (_config.EnableAIModeration && !string.IsNullOrEmpty(_aiProvider))
+            if (_config.EnableAIModeration && !string.IsNullOrEmpty(_config.AgentProvider))
             {
                 var aiNarr = GetAssistantResponse("System", "admin", $"Format this server event for Discord/Telegram: '{message}'. Keep it under 200 characters, dramatic, and clear. No markdown.", null);
                 if (!string.IsNullOrEmpty(aiNarr) && !aiNarr.StartsWith("?")) message = aiNarr;
