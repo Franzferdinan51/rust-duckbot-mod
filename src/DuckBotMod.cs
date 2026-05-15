@@ -1413,6 +1413,12 @@ namespace Oxide.Plugins
                 case "blueprint": case "bp": ShowBlueprintInfo(player, session, argStr); break;
                 case "loc": HandleGridNav(player, session, argStr); break;
                 case "daynight": HandleTimeToNight(player, session); break;
+                case "mapintel": HandleMapIntel(player, session, argStr); break;
+                case "route": HandleRouteAdvice(player, session, argStr); break;
+                case "brief": HandleWorldBrief(player, session); break;
+                case "wipeprep": HandleWipePrep(player, session); break;
+                case "eventintel": HandleEventIntel(player, session); break;
+                case "teamintel": HandleTeamIntel(player, session); break;
                 case "world": HandleWorldInfo(player, session); break;
 
                 // === AI CHAT ===
@@ -1576,6 +1582,8 @@ namespace Oxide.Plugins
             PrintToChat(player, "<color=#888>/db stats</color> — Player statistics");
             PrintToChat(player, "<color=#888>/db radar</color> — Nearby players");
             PrintToChat(player, "<color=#888>/db grid</color> — Grid map");
+            PrintToChat(player, "<color=#888>/db mapintel</color> — AI map briefing");
+            PrintToChat(player, "<color=#888>/db route <target></color> — AI route advice");
             PrintToChat(player, "<color=#888>/db mark <name></color> — Place marker");
             PrintToChat(player, "<color=#888>/db near <radius></color> — Find nearby players");
             PrintToChat(player, "<color=#888>/db raiders</color> — Active raiders");
@@ -1588,6 +1596,10 @@ namespace Oxide.Plugins
 
             PrintToChat(player, "\n<color=#F39C12>━━━ AI TERMINAL ━━━</color>");
             PrintToChat(player, "<color=#888>/db ask <question></color> — Ask AI anything");
+            PrintToChat(player, "<color=#888>/db brief</color> — AI world brief");
+            PrintToChat(player, "<color=#888>/db wipeprep</color> — AI wipe checklist");
+            PrintToChat(player, "<color=#888>/db eventintel</color> — AI event guidance");
+            PrintToChat(player, "<color=#888>/db teamintel</color> — AI team briefing (VIP+)");
             PrintToChat(player, "<color=#888>/db analyze</color> — Analyze your base");
             PrintToChat(player, "<color=#888>/db recommend</color> — Get recommendations");
             PrintToChat(player, "<color=#888>/db search <query></color> — Search knowledge");
@@ -5240,6 +5252,70 @@ namespace Oxide.Plugins
             PrintToChat(player, $"Grid: <color=#4DA6FF>{GetGridCoord(pos)}</color>");
             PrintToChat(player, $"Coords: <color=#888>{GetLocation(pos)}</color>");
             PrintToChat(player, $"Nearest monument: <color=#4DA6FF>{GetNearestMonument(pos)}</color>");
+        }
+
+        private void HandleMapIntel(BasePlayer player, PlayerSession session, string args)
+        {
+            var pos = player.transform.position;
+            var grid = GetGridCoord(pos);
+            var nearest = GetNearestMonument(pos);
+            var visibleMarkers = _gridMarkers.Where(m => m.Visible || m.OwnerId == player.UserIDString).Take(6).Select(m => m.Name + " @ " + GetGridCoord(m.Position)).ToList();
+            var nearbyPlayers = BasePlayer.activePlayerList.Count(p => p != player && Vector3.Distance(p.transform.position, pos) <= 150f);
+            PrintToChat(player, "<color=#FFD700>═══ MAP INTEL ═══</color>");
+            PrintToChat(player, $"Grid: <color=#4DA6FF>{grid}</color> | Nearest: <color=#4DA6FF>{nearest}</color>");
+            var prompt = $"Give concise Rust map intelligence for player {player.displayName} (role {session.Role}). Current grid: {grid}. Coords: {GetLocation(pos)}. Nearest monument: {nearest}. Server: {ConVar.Server.hostname}. Seed: {ConVar.Server.seed}. World size: {ConVar.Server.worldsize}. PvE: {ConVar.Server.pve}. Visible markers: {string.Join(", ", visibleMarkers)}. Nearby players within 150m: {(HasRoleOrHigher(session.Role, "vip") ? nearbyPlayers.ToString() : "restricted")}. Mention route safety, likely risks, loot priorities, and one fallback option.";
+            var response = GetAssistantResponse(player, session, prompt, false);
+            PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {response}");
+        }
+
+        private void HandleRouteAdvice(BasePlayer player, PlayerSession session, string args)
+        {
+            var pos = player.transform.position;
+            var fromGrid = GetGridCoord(pos);
+            var destination = string.IsNullOrWhiteSpace(args) ? GetNearestMonument(pos) : args.Trim();
+            var knownMonuments = _monumentLocations.Keys.Take(20).ToList();
+            PrintToChat(player, "<color=#FFD700>═══ ROUTE ADVICE ═══</color>");
+            PrintToChat(player, $"From: <color=#4DA6FF>{fromGrid}</color> -> Target: <color=#4DA6FF>{destination}</color>");
+            var prompt = $"Give route advice for a Rust player traveling from grid {fromGrid} near {GetNearestMonument(pos)} to {destination}. Known monuments: {string.Join(", ", knownMonuments)}. Server PvE: {ConVar.Server.pve}. Keep it concise. Include recommended preparation, likely threats, and one safer alternate route or monument if the direct plan is risky.";
+            var response = GetAssistantResponse(player, session, prompt, false);
+            PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {response}");
+        }
+
+        private void HandleWorldBrief(BasePlayer player, PlayerSession session)
+        {
+            PrintToChat(player, "<color=#FFD700>═══ WORLD BRIEF ═══</color>");
+            var prompt = $"Summarize the current Rust world state for player {player.displayName}. Server: {ConVar.Server.hostname}. Players online: {BasePlayer.activePlayerList.Count}. Sleepers: {BasePlayer.sleepingPlayerList.Count}. FPS: {Math.Round(1.0f / Time.deltaTime, 1)}. Uptime: {Time.realtimeSinceStartup / 3600.0:F1}h. Seed: {ConVar.Server.seed}. World size: {ConVar.Server.worldsize}. PvE: {ConVar.Server.pve}. Nearby monument: {GetNearestMonument(player.transform.position)}. Give a concise status brief with the most useful next action.";
+            var response = GetAssistantResponse(player, session, prompt, false);
+            PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {response}");
+        }
+
+        private void HandleWipePrep(BasePlayer player, PlayerSession session)
+        {
+            PrintToChat(player, "<color=#FFD700>═══ WIPE PREP ═══</color>");
+            var prompt = $"Give a concise Rust wipe-prep checklist for player {player.displayName}. Server: {ConVar.Server.hostname}. Current grid: {GetGridCoord(player.transform.position)}. Nearby monument: {GetNearestMonument(player.transform.position)}. World size: {ConVar.Server.worldsize}. Mention starter routing, first monument priorities, what to craft early, and one common mistake to avoid.";
+            var response = GetAssistantResponse(player, session, prompt, false);
+            PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {response}");
+        }
+
+        private void HandleEventIntel(BasePlayer player, PlayerSession session)
+        {
+            PrintToChat(player, "<color=#FFD700>═══ EVENT INTEL ═══</color>");
+            var activeRaids = _raidHistory.Count(r => r.Outcome == "in_progress");
+            var prompt = $"Give concise Rust world event intelligence for player {player.displayName}. Current tracked raids: {activeRaids}. Nearby monument: {GetNearestMonument(player.transform.position)}. Mention cargo, patrol heli, Bradley, CH47, locked crate style timing awareness, and say clearly when live tracking is unavailable.";
+            var response = GetAssistantResponse(player, session, prompt, false);
+            PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {response}");
+        }
+
+        private void HandleTeamIntel(BasePlayer player, PlayerSession session)
+        {
+            if (!HasRoleOrHigher(session.Role, "vip")) { PrintToChat(player, "<color=#FF4444>VIP+ required</color>"); return; }
+            PrintToChat(player, "<color=#FFD700>═══ TEAM INTEL ═══</color>");
+            var visibleMarkers = _gridMarkers.Where(m => m.Visible || m.OwnerId == player.UserIDString).Take(8).Select(m => m.Name + " @ " + GetGridCoord(m.Position)).ToList();
+            var recentAlerts = _activeAlerts.OrderByDescending(a => a.Time).Take(5).Select(a => a.Title).ToList();
+            var nearbyPlayers = BasePlayer.activePlayerList.Where(p => p != player && Vector3.Distance(p.transform.position, player.transform.position) <= 200f).Select(p => p.displayName).Take(8).ToList();
+            var prompt = $"Give a concise Rust team-intel briefing for player {player.displayName} (role {session.Role}). Grid: {GetGridCoord(player.transform.position)}. Nearest monument: {GetNearestMonument(player.transform.position)}. Nearby players: {string.Join(", ", nearbyPlayers)}. Recent alerts: {string.Join(", ", recentAlerts)}. Visible markers: {string.Join(", ", visibleMarkers)}. Recommend coordination priorities, movement, and one defensive action.";
+            var response = GetAssistantResponse(player, session, prompt, false);
+            PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {response}");
         }
 
         private void HandleWorldInfo(BasePlayer player, PlayerSession session)

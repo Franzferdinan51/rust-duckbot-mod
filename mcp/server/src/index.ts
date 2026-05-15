@@ -54,6 +54,7 @@ interface PlayerState {
   currentCamera?: string;
   online?: boolean;
   position?: string;
+  monument?: string;
 }
 
 interface ServerStatus {
@@ -552,6 +553,31 @@ export const ALL_TOOLS = [
     inputSchema: { type: 'object', properties: {} },
   },
   {
+    name: 'rust_map_overview',
+    description: 'Get structured map/world overview: server name, seed, world size, PvE mode, monuments, markers, players, sleepers, entities, alerts, and uptime.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'rust_route_advice',
+    description: 'Return structured route context between a player/grid origin and a target monument or grid for AI planning.',
+    inputSchema: { type: 'object', properties: { player_id: schema.string('Optional player origin.'), from_grid: schema.string('Optional explicit origin grid.'), to: schema.string('Target monument or grid.'), requester_role: schema.role }, required: ['to'] },
+  },
+  {
+    name: 'rust_monument_advice_context',
+    description: 'Return structured monument context including grid, position, and nearby monuments for AI briefing.',
+    inputSchema: { type: 'object', properties: { monument: schema.string('Monument name.'), from_grid: schema.string('Optional player grid for context.') }, required: ['monument'] },
+  },
+  {
+    name: 'rust_map_marker_catalog',
+    description: 'Return DuckBot map markers grouped by owner/public visibility/type.',
+    inputSchema: { type: 'object', properties: { player_id: schema.string('Optional owner filter.') } },
+  },
+  {
+    name: 'rust_chat_moderation_context',
+    description: 'Return recent chat and activity context for AI-powered moderation review, focused on harassment/spam/scam language and suspicious exploit coordination clues.',
+    inputSchema: { type: 'object', properties: { player_id: schema.string('Optional player filter.'), limit: schema.number('Default 20, max 100.'), requester_role: schema.role } },
+  },
+  {
     name: 'rust_rcon_command_catalog',
     description: 'List every preconfigured RCON command DuckBot exposes to LM Studio, with category, role, safety level, examples, and whether to call rust_rcon_query or rust_rcon_command.',
     inputSchema: { type: 'object', properties: { category: schema.string('Optional category filter: read, moderation, communication, inventory, movement, world, maintenance, diagnostics.'), safety: schema.string('Optional safety filter: read-only, action, destructive-action, maintenance-action.') } },
@@ -965,6 +991,59 @@ export async function handleToolCall(
     case 'rust_server_status':
     case 'rust_get_server_status':
       return jsonResult({ ...state.server, bridgeClients: state.rustClients.size, queuedMessages: state.outboundMessages.length });
+
+    case 'rust_map_overview':
+      return jsonResult({
+        server: state.server,
+        markerCount: state.markers.size,
+        publicMarkerCount: Array.from(state.markers.values()).filter((marker) => marker.visible).length,
+        playerCount: state.players.size,
+        monuments: state.server.monuments ?? [],
+        monumentCount: state.server.monuments?.length ?? 0,
+      });
+
+    case 'rust_route_advice': {
+      const playerId = optionalString(args, 'player_id');
+      const fromGrid = optionalString(args, 'from_grid');
+      const to = requiredString(args, 'to');
+      if (!to) return textResult('to is required.', true);
+      const player = playerId ? state.players.get(playerId) : undefined;
+      const origin = fromGrid || player?.position || 'unknown';
+      const nearest = player?.monument;
+      const matchingMonuments = (state.server.monuments ?? []).filter((monument) => monument.name.toLowerCase().includes(to.toLowerCase()) || (monument.grid ?? '').toLowerCase().includes(to.toLowerCase()));
+      return jsonResult({ origin, target: to, nearestMonument: nearest, matchingMonuments, player: player ?? null, guidance: 'Use this structured context with LM Studio to produce route/safety advice.' });
+    }
+
+    case 'rust_monument_advice_context': {
+      const monumentName = requiredString(args, 'monument');
+      if (!monumentName) return textResult('monument is required.', true);
+      const monuments = state.server.monuments ?? [];
+      const monument = monuments.find((item) => item.name.toLowerCase().includes(monumentName.toLowerCase()));
+      const nearby = monuments.filter((item) => item !== monument).slice(0, 6);
+      return jsonResult({ monument: monument ?? null, fromGrid: optionalString(args, 'from_grid'), nearbyMonuments: nearby, guidance: 'Use this with LM Studio to explain loot, risk, travel, and progression relevance.' });
+    }
+
+    case 'rust_map_marker_catalog': {
+      const playerId = optionalString(args, 'player_id');
+      const markers = Array.from(state.markers.values()).filter((marker) => !playerId || marker.ownerId === playerId);
+      return jsonResult({
+        markers,
+        count: markers.length,
+        publicMarkers: markers.filter((marker) => marker.visible),
+        ownedMarkers: playerId ? markers.filter((marker) => marker.ownerId === playerId) : [],
+        icons: Array.from(new Set(markers.map((marker) => marker.icon))),
+      });
+    }
+
+    case 'rust_chat_moderation_context': {
+      const denied = requireRole(state, args, 'mod');
+      if (denied) return denied;
+      const playerId = optionalString(args, 'player_id');
+      const limit = Math.min(optionalNumber(args, 'limit', 20), 100);
+      const chat = state.chatHistory.filter((entry) => !playerId || entry.target === playerId || entry.sender === playerId).slice(-limit);
+      const activity = state.activity.filter((entry) => !playerId || entry.playerId === playerId).slice(-limit);
+      return jsonResult({ chat, activity, guidance: 'Use for AI moderation of spam, harassment, scams, or suspicious coordination. Do not treat this as proof of cheating by itself.' });
+    }
 
     case 'rust_rcon_command_catalog': {
       const category = optionalString(args, 'category');
@@ -1527,7 +1606,10 @@ export function createMcpServer(state: DuckBotState, config: ServerConfig): Serv
 
   server.setRequestHandler(ListResourcesRequestSchema, async () => ({
     resources: [
-      { uri: 'rustduckbot://server/status', name: 'RustDuckBot server status', mimeType: 'application/json' },
+      { uri: 'rustduckbot://map/overview', name: 'Map/world overview', mimeType: 'application/json' },
+      { uri: 'rustduckbot://map/markers', name: 'Map marker catalog', mimeType: 'application/json' },
+      { uri: 'rustduckbot://chat/moderation', name: 'Chat moderation context', mimeType: 'application/json' },
+
       { uri: 'rustduckbot://cameras', name: 'Known cameras', mimeType: 'application/json' },
       { uri: 'rustduckbot://players', name: 'Known players', mimeType: 'application/json' },
       { uri: 'rustduckbot://rcon/catalog', name: 'RCON command catalog', mimeType: 'application/json' },
@@ -1540,6 +1622,9 @@ export function createMcpServer(state: DuckBotState, config: ServerConfig): Serv
 
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const uri = request.params.uri;
+    if (uri === 'rustduckbot://map/overview') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify({ server: state.server, markerCount: state.markers.size, markers: Array.from(state.markers.values()), players: Array.from(state.players.values()) }, null, 2) }] };
+    if (uri === 'rustduckbot://map/markers') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(Array.from(state.markers.values()), null, 2) }] };
+    if (uri === 'rustduckbot://chat/moderation') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify({ chat: state.chatHistory.slice(-50), activity: state.activity.slice(-50) }, null, 2) }] };
     if (uri === 'rustduckbot://server/status') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(state.server, null, 2) }] };
     if (uri === 'rustduckbot://cameras') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(Array.from(state.cameras.values()), null, 2) }] };
     if (uri === 'rustduckbot://players') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(Array.from(state.players.values()), null, 2) }] };
@@ -1564,12 +1649,37 @@ export function createMcpServer(state: DuckBotState, config: ServerConfig): Serv
         ],
       },
       {
-        name: 'rust_duckbot_admin_review',
-        description: 'Review an admin action before execution.',
+        name: 'rust_map_briefing',
+        description: 'Prepare a map/world briefing for a player using DuckBot map tools.',
+        arguments: [
+          { name: 'player_name', description: 'Player display name', required: true },
+          { name: 'player_role', description: 'user, vip, mod, or admin', required: true },
+          { name: 'goal', description: 'Player goal such as loot, route, safety, monuments, or wipe prep', required: false },
+        ],
+      },
+      {
+        name: 'rust_route_planner',
+        description: 'Plan a route between a player origin and target grid/monument using structured map context.',
+        arguments: [
+          { name: 'origin', description: 'Starting grid or player location', required: true },
+          { name: 'target', description: 'Destination grid or monument', required: true },
+          { name: 'player_role', description: 'user, vip, mod, or admin', required: false },
+        ],
+      },
+      {
+        name: 'rust_monument_briefing',
+        description: 'Explain a Rust monument with progression, loot, and travel context.',
+        arguments: [
+          { name: 'monument', description: 'Monument name', required: true },
+          { name: 'player_role', description: 'user, vip, mod, or admin', required: false },
+        ],
+      },
+      {
+        name: 'rust_admin_world_review',
+        description: 'Review live world/server context for admins before taking actions.',
         arguments: [
           { name: 'admin_name', description: 'Admin display name', required: true },
-          { name: 'action', description: 'Requested action', required: true },
-          { name: 'target', description: 'Target player/entity', required: false },
+          { name: 'focus', description: 'Focus area such as players, map, alerts, routes, moderation', required: false },
         ],
       },
     ],
@@ -1585,6 +1695,58 @@ export function createMcpServer(state: DuckBotState, config: ServerConfig): Serv
           content: {
             type: 'text',
             text: `You are DuckBot inside a Rust computer station. Reply concisely for chat.\nPlayer: ${args['player_name']}\nRole: ${args['player_role']}\nMessage: ${args['message']}\nUse tools only within the player's role.`,
+          },
+        }],
+      };
+    }
+
+    if (request.params.name === 'rust_map_briefing') {
+      return {
+        description: 'Rust map/world briefing',
+        messages: [{
+          role: 'user',
+          content: {
+            type: 'text',
+            text: `Prepare a concise Rust map/world briefing for ${args['player_name']} (role ${args['player_role']}). Goal: ${args['goal'] || 'general survival and routing'}. Use rust_map_overview, rust_get_monument_info, rust_map_marker_catalog, and rust_get_player_positions when role permits. Focus on grid position context, monuments, route safety, loot priorities, and one fallback plan.` ,
+          },
+        }],
+      };
+    }
+
+    if (request.params.name === 'rust_route_planner') {
+      return {
+        description: 'Rust route planner',
+        messages: [{
+          role: 'user',
+          content: {
+            type: 'text',
+            text: `Plan a Rust route from ${args['origin']} to ${args['target']} for role ${args['player_role'] || 'user'}. Use rust_route_advice, rust_map_overview, rust_get_monument_info, and rust_map_marker_catalog. Explain route safety, prep, threats, and a safer alternate option if needed.` ,
+          },
+        }],
+      };
+    }
+
+    if (request.params.name === 'rust_monument_briefing') {
+      return {
+        description: 'Rust monument briefing',
+        messages: [{
+          role: 'user',
+          content: {
+            type: 'text',
+            text: `Explain the Rust monument ${args['monument']} for role ${args['player_role'] || 'user'}. Use rust_monument_advice_context and rust_map_overview. Cover why players go there, likely loot/progression value, travel risk, and what to bring.` ,
+          },
+        }],
+      };
+    }
+
+    if (request.params.name === 'rust_admin_world_review') {
+      return {
+        description: 'Rust admin world review',
+        messages: [{
+          role: 'user',
+          content: {
+            type: 'text',
+            text: `Review the live Rust world for admin ${args['admin_name']}. Focus: ${args['focus'] || 'map, players, alerts, and routing'}. Use rust_map_overview, rust_get_player_positions, rust_list_activity, rust_chat_moderation_context, rust_bridge_status, and rust_rcon_command_catalog before suggesting actions.` ,
           },
         }],
       };
