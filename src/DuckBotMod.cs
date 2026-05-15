@@ -6795,7 +6795,7 @@ namespace Oxide.Plugins
                 catch (OperationCanceledException) { break; }
                 catch (Exception ex)
                 {
-                    _plugin.PrintWarning($"WS-RCON receive failed: {ex.Message}");
+                    _plugin.PrintToServer($"WS-RCON receive failed: {ex.Message}");
                     break;
                 }
             }
