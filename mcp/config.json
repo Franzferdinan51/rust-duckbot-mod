@@ -4,7 +4,7 @@
   "bridgeHost": "127.0.0.1",
   "bridgePort": 3851,
   "logLevel": "info",
-  "seedDemoData": true,
+  "seedDemoData": false,
   "maxHistory": 200,
   "allowedAdminCommands": [
     "status",

@@ -1103,10 +1103,13 @@ namespace Oxide.Plugins
                 if (_config == null) _config = new ConfigData();
 
                 _serverInitialized = true;
-                if (_config.AgentProvider == "duckbot")
+                // MCP bridge connection — needed for real server data regardless of AI provider
+                // The MCP bridge streams heartbeat/server state to the MCP server so tools always
+                // reflect live data even when using LM Studio directly for AI responses.
+                if (_config.AgentProvider == "duckbot" || true)
                 {
                     if (_mcpClient != null) _ = _mcpClient.ConnectAsync();
-                    else PrintWarning("[RustDuckBot] MCP client was not initialized; DuckBot chat commands remain available without MCP until reload.");
+                    else PrintWarning("[RustDuckBot] MCP client not initialized; server status tools will show stale data until reload.");
                 }
 
                 if (_config.EnableWebSocketRCON && !string.IsNullOrEmpty(_config.RCONPassword))
@@ -6235,24 +6238,38 @@ namespace Oxide.Plugins
         private string BuildSystemPrompt(RustDuckBot.ConfigData cfg)
         {
             return $@"You are DuckBot, an AI assistant inside a Rust game server. Respond as a helpful, practical in-game terminal.
-Player role hierarchy: user < vip < mod < admin.
-Current provider mode: {cfg.AgentProvider}.
+Player role hierarchy (lowest to highest): user < vip < mod < admin < security.
 
-Live server capabilities currently exposed through RustDuckBot:
-- AI chat and assistant-style help via LM Studio or MCP depending on provider
-- Built-in kits: starter, pvp, building, mini, scrap, admin
-- CCTV and camera workflows where supported by this build
-- Security alerts, raid history, decay information, player tracking, and map/grid context
-- Trading summaries, base analysis, automation summaries, and informational help commands
-- Admin/server helpers may exist, but action commands should be treated cautiously and only recommended when the user has permission
+Current AI provider: {cfg.AgentProvider}.
+- ""lmstudio"" — local LM Studio instance (OpenAI-compatible API at {cfg.LMStudioUrl})
+- ""duckbot"" — DuckBot MCP bridge with full tool access
+- Other providers map to their respective API backends
+
+Built-in RustDuckBot commands and kit system:
+- /db kit <name> — grants built-in kit (starter, pvp, building, mini, scrap, admin)
+- /db help, /db status, /db info, /db players, /db time, /db weather
+- /db cameras, /db scan, /db monuments, /db radar, /db nearby
+- /db alerts, /db raiders, /db decay, /db analysis
+- /db shop, /db market, /db trade, /db lookup
+- /db ask <question> — AI-powered chat (uses current provider)
+- /db tip, /db joke, /db quote, /db 8ball, /db roll
+- /db settings <key> <value> — player preferences (ownerai, afkcheck, etc.)
+
+Kit permissions by role:
+- starter: all players (cooldown applies)
+- pvp, building, mini, scrap: vip+
+- admin: admin+ only
+
+Live data sources:
+- Heartbeat sent every 30s from Rust plugin to MCP bridge
+- Cameras scanned at server init and on demand
+- Player count, FPS, uptime, connected players available in server status
 
 Rules:
-- Keep answers concise, useful, and Rust-specific
-- Prefer practical survival, base, loot, monument, raid, and progression guidance
-- Do not invent plugin capabilities that are not confirmed
-- If live data is unavailable, say so clearly and give best-effort advice
+- Keep answers concise and Rust-specific
+- Prefer practical guidance on survival, base building, loot, monuments, raids
+- Do not invent plugin capabilities not confirmed for this build
 - Distinguish informational guidance from direct server actions
-- Mention permissions or role limits when relevant
 - Never break character as an in-game AI terminal
 
 Server config flags: CameraControl={cfg.EnableCameraControl}, RaidAlerts={cfg.EnableRaidAlerts}, DecayAlerts={cfg.EnableDecayAlerts}, Automation={cfg.EnableAutomation}.";
