@@ -4706,8 +4706,6 @@ namespace Oxide.Plugins
             public DateTime ListedAt;
         }
 
-        private readonly List<LuckyBlock> _shopListings = new List<LuckyBlock>();
-
         private void HandleShop(BasePlayer player, PlayerSession session, string args)
         {
             var parts = args.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
@@ -4737,78 +4735,90 @@ namespace Oxide.Plugins
 
         private void ListShop(BasePlayer player)
         {
-            if (_shopListings.Count == 0) { PrintToChat(player, "<color=#888>No active listings. Be the first!</color>"); return; }
-            PrintToChat(player, $"<color=#FFD700>═══ Shop ({_shopListings.Count} listings) ═══</color>");
-            foreach (var listing in _shopListings.OrderByDescending(l => l.ListedAt).Take(10))
+            var activeListings = _shopListings.Where(l => l.Available).OrderByDescending(l => l.ListedAt).ToList();
+            if (activeListings.Count == 0) { PrintToChat(player, "<color=#888>No active listings. Be the first!</color>"); return; }
+            PrintToChat(player, $"<color=#FFD700>═══ Shop ({activeListings.Count} listings) ═══</color>");
+            foreach (var listing in activeListings.Take(10))
             {
-                var owner = BasePlayer.activePlayerList.FirstOrDefault(p => p.userID == listing.OwnerId);
-                PrintToChat(player, $"<color=#00FF88>{listing.ItemName}</color> x{listing.ItemCount} — {listing.PriceScrap} scrap (seller: {owner?.displayName ?? "offline"})");
+                var owner = BasePlayer.activePlayerList.FirstOrDefault(p => p.UserIDString == listing.SellerId);
+                PrintToChat(player, $"<color=#00FF88>{listing.ItemName}</color> x{listing.Quantity} — {listing.PricePerUnit:0} {listing.Currency} (seller: {owner?.displayName ?? listing.SellerId ?? "offline"})");
             }
-            if (_shopListings.Count > 10) PrintToChat(player, $"<color=#888>+{_shopListings.Count - 10} more — /db shop list all</color>");
+            if (activeListings.Count > 10) PrintToChat(player, $"<color=#888>+{activeListings.Count - 10} more</color>");
         }
 
         private void AddShopListing(BasePlayer player, PlayerSession session, string itemName, string priceStr)
         {
-            if (!int.TryParse(priceStr, out var price) || price <= 0) { PrintToChat(player, "Invalid price."); return; }
-            var playerListings = _shopListings.Count(l => l.OwnerId == player.userID);
+            if (!float.TryParse(priceStr, out var price) || price <= 0) { PrintToChat(player, "Invalid price."); return; }
+            var playerListings = _shopListings.Count(l => l.SellerId == player.UserIDString && l.Available);
             if (playerListings >= _config.ShopMaxListingsPerPlayer) { PrintToChat(player, $"Max {_config.ShopMaxListingsPerPlayer} listings per player."); return; }
-            var existing = _shopListings.FirstOrDefault(l => l.OwnerId == player.userID && l.ItemName.Equals(itemName, StringComparison.OrdinalIgnoreCase));
-            if (existing != null) { PrintToChat(player, $"You already have {itemName} listed for {existing.PriceScrap} scrap. Remove it first."); return; }
-            var listing = new LuckyBlock { OwnerId = player.userID, ItemName = itemName, ItemCount = 1, PriceScrap = price, ListedAt = DateTime.Now };
+            var existing = _shopListings.FirstOrDefault(l => l.SellerId == player.UserIDString && l.Available && l.ItemName.Equals(itemName, StringComparison.OrdinalIgnoreCase));
+            if (existing != null) { PrintToChat(player, $"You already have {itemName} listed for {existing.PricePerUnit:0} {existing.Currency}. Remove it first."); return; }
+            var listing = new ShopListing
+            {
+                Id = Guid.NewGuid().ToString("N").Substring(0, 8),
+                SellerId = player.UserIDString,
+                ItemName = itemName,
+                Quantity = 1,
+                PricePerUnit = price,
+                Currency = "scrap",
+                Available = true,
+                ListedAt = DateTime.Now,
+                Description = "Player listing"
+            };
             _shopListings.Add(listing);
-            PrintToChat(player, $"<color=#00FF88>Listed {itemName} for {price} scrap.</color>");
-            LogActivity("economy", "shop_add", $"{itemName}@{price} by {player.displayName}", player.UserIDString, player.displayName);
+            PrintToChat(player, $"<color=#00FF88>Listed {itemName} for {price:0} scrap.</color>");
+            LogActivity("economy", "shop_add", $"{itemName}@{price:0} by {player.displayName}", player.UserIDString, player.displayName);
         }
 
         private void BuyShopItem(BasePlayer player, PlayerSession session, string itemName)
         {
-            var listing = _shopListings.FirstOrDefault(l => l.ItemName.Equals(itemName, StringComparison.OrdinalIgnoreCase));
+            var listing = _shopListings.FirstOrDefault(l => l.Available && l.ItemName.Equals(itemName, StringComparison.OrdinalIgnoreCase));
             if (listing == null) { PrintToChat(player, $"No listing found for '{itemName}'."); return; }
-            if (listing.OwnerId == player.userID) { PrintToChat(player, "You can't buy your own listing."); return; }
+            if (listing.SellerId == player.UserIDString) { PrintToChat(player, "You can't buy your own listing."); return; }
             var buyerSession = GetOrCreateSession(player);
-            if (buyerSession.TotalScrap < listing.PriceScrap) { PrintToChat(player, $"Not enough scrap. Need {listing.PriceScrap}, have {buyerSession.TotalScrap}."); return; }
-            var seller = BasePlayer.activePlayerList.FirstOrDefault(p => p.userID == listing.OwnerId);
-            buyerSession.TotalScrap -= listing.PriceScrap;
+            var totalPrice = (int)Math.Ceiling(listing.PricePerUnit * listing.Quantity);
+            if (buyerSession.TotalScrap < totalPrice) { PrintToChat(player, $"Not enough scrap. Need {totalPrice}, have {buyerSession.TotalScrap}."); return; }
+            var seller = BasePlayer.activePlayerList.FirstOrDefault(p => p.UserIDString == listing.SellerId);
+            buyerSession.TotalScrap -= totalPrice;
             var sellerSession = seller != null ? GetOrCreateSession(seller) : null;
-            if (sellerSession != null) sellerSession.TotalScrap += listing.PriceScrap;
-            Server.Command($"scavenger.additem \"{player.UserIDString}\" {listing.ItemName} {listing.ItemCount}");
-            _shopListings.Remove(listing);
-            PrintToChat(player, $"<color=#00FF88>Purchased {listing.ItemName} for {listing.PriceScrap} scrap!</color>");
-            if (seller != null) PrintToChat(seller, $"<color=#FFD700>{player.displayName}</color> bought your <color=#00FF88>{listing.ItemName}</color> for {listing.PriceScrap} scrap!");
-            LogActivity("economy", "shop_buy", $"{listing.ItemName} sold for {listing.PriceScrap} scrap to {player.displayName}", player.UserIDString, player.displayName);
+            if (sellerSession != null) sellerSession.TotalScrap += totalPrice;
+            Server.Command($"scavenger.additem \"{player.UserIDString}\" {listing.ItemName} {listing.Quantity}");
+            listing.Available = false;
+            PrintToChat(player, $"<color=#00FF88>Purchased {listing.ItemName} for {totalPrice} scrap!</color>");
+            if (seller != null) PrintToChat(seller, $"<color=#FFD700>{player.displayName}</color> bought your <color=#00FF88>{listing.ItemName}</color> for {totalPrice} scrap!");
+            LogActivity("economy", "shop_buy", $"{listing.ItemName} sold for {totalPrice} scrap to {player.displayName}", player.UserIDString, player.displayName);
         }
 
         private void RemoveShopListing(BasePlayer player, PlayerSession session, string itemName)
         {
-            var listing = _shopListings.FirstOrDefault(l => l.OwnerId == player.userID && l.ItemName.Equals(itemName, StringComparison.OrdinalIgnoreCase));
+            var listing = _shopListings.FirstOrDefault(l => l.SellerId == player.UserIDString && l.Available && l.ItemName.Equals(itemName, StringComparison.OrdinalIgnoreCase));
             if (listing == null) { PrintToChat(player, $"No listing found for '{itemName}' under your name."); return; }
-            _shopListings.Remove(listing);
+            listing.Available = false;
             PrintToChat(player, $"Removed listing: {itemName}.");
         }
 
         private void ExchangeScrapRP(BasePlayer player, PlayerSession session, string type, string amountStr)
         {
             if (!int.TryParse(amountStr, out var amount) || amount <= 0) { PrintToChat(player, "Invalid amount."); return; }
-            var isScrapToRP = type.ToLowerInvariant() == "scrap";
-            if (!isScrapToRP && type.ToLowerInvariant() != "rp") { PrintToChat(player, "Use: /db shop exchange scrap <amount> or /db shop exchange rp <amount>"); return; }
+            var isScrap = type.ToLowerInvariant() == "scrap";
+            var isRp = type.ToLowerInvariant() == "rp";
+            if (!isScrap && !isRp) { PrintToChat(player, "Use: /db shop exchange scrap <amount> or /db shop exchange rp <amount>"); return; }
             var rate = _config.ShopExchangeRateScrapPerRP;
-            if (isScrapToRP)
+            if (isScrap)
             {
                 if (session.TotalScrap < amount) { PrintToChat(player, $"Not enough scrap. Have {session.TotalScrap}."); return; }
                 var rp = amount / rate;
                 if (rp < 1) { PrintToChat(player, $"Minimum exchange is {rate} scrap for 1 RP."); return; }
                 session.TotalScrap -= amount;
-                PrintToChat(player, $"<color=#FFD700>Exchanged {amount} scrap → {rp} RP.</color>");
-                LogActivity("economy", "exchange", $"scrap→rp: {amount} scrap, {rp} RP to {player.displayName}", player.UserIDString, player.displayName);
+                PrintToChat(player, $"<color=#FFD700>Exchanged {amount} scrap for {rp} RP.</color>");
+                LogActivity("economy", "exchange", $"scrap->rp: {amount} scrap, {rp} RP to {player.displayName}", player.UserIDString, player.displayName);
+                return;
             }
-            else
-            {
-                var scrapNeeded = amount * rate;
-                if (session.TotalScrap < scrapNeeded) { PrintToChat(player, $"Not enough scrap. Need {scrapNeeded}, have {session.TotalScrap}."); return; }
-                session.TotalScrap -= scrapNeeded;
-                PrintToChat(player, $"<color=#FFD700>Exchanged {scrapNeeded} scrap for {amount} RP.</color>");
-                LogActivity("economy", "exchange", $"rp→scrap: {scrapNeeded} scrap, {amount} RP to {player.displayName}", player.UserIDString, player.displayName);
-            }
+            var scrapNeeded = amount * rate;
+            if (session.TotalScrap < scrapNeeded) { PrintToChat(player, $"Not enough scrap. Need {scrapNeeded}, have {session.TotalScrap}."); return; }
+            session.TotalScrap -= scrapNeeded;
+            PrintToChat(player, $"<color=#FFD700>Exchanged {scrapNeeded} scrap for {amount} RP.</color>");
+            LogActivity("economy", "exchange", $"rp->scrap: {scrapNeeded} scrap, {amount} RP to {player.displayName}", player.UserIDString, player.displayName);
         }
 
         // ── Lucky Block (VIP+) ──────────────────────────────────────────────
