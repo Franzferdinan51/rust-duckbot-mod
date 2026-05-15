@@ -1128,6 +1128,12 @@ namespace Oxide.Plugins
                 // Decay check every 5 min
                 _decayTimer = timer.Every(300f, () => DecayCheckCallback(null));
 
+                // Subscribe to hooks
+                // Hooks disabled — Rust types not available in Oxide.Compiler
+                // Re-enable individually once hook implementations are verified for this build
+                // Subscribe(nameof(OnPlayerConnected));
+                // Subscribe(nameof(OnPlayerDisconnected));
+
                 // Load persisted data
                 LoadData();
 
@@ -1145,10 +1151,49 @@ namespace Oxide.Plugins
         
         // ALL HOOKS DISABLED - Rust types not available in Oxide.Compiler
         /*
-        private void OnPlayerConnected(BasePlayer player) { }
-        private void OnPlayerDisconnected(BasePlayer player, string reason) { }
+        private void OnPlayerConnected(BasePlayer player)
+        {
+            if (player == null) return;
+            var session = GetOrCreateSession(player);
+            _mcpClient?.SendMessage(new
+            {
+                type = "player_joined",
+                playerId = player.UserIDString,
+                name = player.displayName,
+                role = session?.Role ?? "user",
+                time = DateTime.Now.ToString("o")
+            });
+        }
+        private void OnPlayerDisconnected(BasePlayer player, string reason)
+        {
+            if (player == null) return;
+            _mcpClient?.SendMessage(new
+            {
+                type = "player_left",
+                playerId = player.UserIDString,
+                name = player.displayName,
+                reason = reason ?? "unknown",
+                time = DateTime.Now.ToString("o")
+            });
+        }
         private object OnPlayerChat(BasePlayer player, string message) { return null; }
-        private void OnEntityTakeDamage(BaseEntity entity, HitInfo info) { }
+        private void OnEntityTakeDamage(BaseEntity entity, HitInfo info)
+        {
+            if (entity == null || info == null) return;
+            var victimId = entity is BasePlayer bp ? bp.UserIDString : entity.OwnerID.ToString();
+            var attackerId = info.Initiator is BasePlayer ap ? ap.UserIDString : "world";
+            var weapon = info.Weapon?.ShortPrefabName ?? "unknown";
+            var damage = info.damageTypes?.Total() ?? 0f;
+            _mcpClient?.SendMessage(new
+            {
+                type = "entity_damage",
+                victimId,
+                attackerId,
+                weapon,
+                damage,
+                time = DateTime.Now.ToString("o")
+            });
+        }
         private void OnPlayerAttacked(BasePlayer attacker, HitInfo info) { }
         private void OnDoorOpened(BasePlayer player, Door door) { }
         private void OnDoorClosed(Door door) { }
