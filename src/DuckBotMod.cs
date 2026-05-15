@@ -4067,6 +4067,17 @@ namespace Oxide.Plugins
             }
         }
 
+        private void HandleSlay(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!HasRoleOrHigher(session.Role, "mod")) { PrintToChat(player, "<color=#FF4444>No permission.</color>"); return; }
+            if (string.IsNullOrWhiteSpace(args)) { PrintToChat(player, "<color=#FFD700>Usage:</color> /db slay <player>"); return; }
+            var target = FindPlayer(args);
+            if (target == null) { PrintToChat(player, $"<color=#FF4444>Player not found:</color> {args}"); return; }
+            target.Hurt(target.health + 1000f, Rust.DamageType.Generic, player, false);
+            PrintToChat(player, $"<color=#00FF88>Slayed:</color> {target.displayName}");
+            LogActivity("moderation", "Slay", $"{target.displayName} slayed by {player.displayName}", target.UserIDString, target.displayName);
+        }
+
         private void HandleRespawn(BasePlayer player, PlayerSession session, string args)
         {
             if (!HasRoleOrHigher(session.Role, "mod")) { PrintToChat(player, "<color=#FF4444>No permission.</color>"); return; }
