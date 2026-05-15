@@ -2169,14 +2169,9 @@ namespace Oxide.Plugins
         private void HandleWipeKits(BasePlayer player, PlayerSession session)
         {
             if (!HasRoleOrHigher(session.Role, "admin")) { PrintToChat(player, "<color=#FF4444>Admin required</color>"); return; }
-            foreach (var p in BasePlayer.activePlayerList)
-            {
-                var sess = GetOrCreateSession(p);
-                sess.KitUsesToday = 0;
-            }
-            Server.Broadcast("<color=#FF4444>⚠ WIPE DAY: All kit usage counters have been reset.</color>");
-            PrintToChat(player, "<color=#00FF88>Kit counters wiped for all players.</color>");
-            LogActivity("admin", "WipeKits", "All kit counters reset by " + player.displayName, player.UserIDString, player.displayName);
+            Server.Broadcast("<color=#FF4444>⚠ WIPE DAY: kit reset command recorded. Manual kit-plugin reset may still be required.</color>");
+            PrintToChat(player, "<color=#00FF88>Wipekits notice sent.</color>");
+            LogActivity("admin", "WipeKits", "Kit reset notice triggered by " + player.displayName, player.UserIDString, player.displayName);
         }
 
         private void HandleBackup(BasePlayer player, PlayerSession session)
