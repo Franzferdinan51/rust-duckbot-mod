@@ -2557,7 +2557,7 @@ namespace Oxide.Plugins
 
         private void ShowAutomation(BasePlayer player, PlayerSession session)
         {
-            if (!HasRoleOrHigher(session.Role, "vip")) { PrintToChat(player, "<color=#FF4444>VIP+ required</color>"); return; }
+            if (!HasRoleOrHigher(session.Role, "mod")) { PrintToChat(player, "<color=#FF4444>Mod+ required</color>"); return; }
 
             PrintToChat(player, "<color=#F39C12>═══════════════════════════════════════</color>");
             PrintToChat(player, "<color=#F39C12>        ⚙ AUTOMATION DASHBOARD</color>");
@@ -3697,6 +3697,8 @@ namespace Oxide.Plugins
             }
         }
 
+        private void HandleRespawn(BasePlayer player, PlayerSession session, string args)
+        {
             if (!HasRoleOrHigher(session.Role, "mod")) { PrintToChat(player, "<color=#FF4444>No permission.</color>"); return; }
             if (string.IsNullOrWhiteSpace(args)) { PrintToChat(player, "<color=#FFD700>Usage:</color> /db respawn <player>"); return; }
             var target = FindPlayer(args);
