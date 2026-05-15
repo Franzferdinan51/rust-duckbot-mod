@@ -233,6 +233,8 @@ namespace Oxide.Plugins
         private Timer _decayTimer;
         private Timer _radarTimer;
         private HashSet<ulong> _knownOnlinePlayers = new HashSet<ulong>();
+        private Dictionary<ulong, Vector3> _lastPlayerPosition = new Dictionary<ulong, Vector3>();
+        private Dictionary<ulong, int> _afkIdleTicks = new Dictionary<ulong, int>();
 
         // Data persistence
         private DuckBotData _saveData;
@@ -277,6 +279,7 @@ namespace Oxide.Plugins
             public DateTime LastKillTime;
             public DateTime LastDailyReward;
             public int TotalScrap;
+            public int RP;
             public int Balance;
             public List<string> Permissions = new List<string>();
             public List<string> Bookmarks = new List<string>();
@@ -649,6 +652,7 @@ namespace Oxide.Plugins
             public DateTime LastKillTime;
             // Economy
             public int TotalScrap;
+            public int RP;
             public int Balance;
             // Death/kill history
             public List<DeathRecord> RecentDeaths = new List<DeathRecord>();
@@ -698,14 +702,19 @@ namespace Oxide.Plugins
 
             if (!_sessions.TryGetValue(player.userID, out var session) || session == null)
             {
+                var role = "user";
+                var authLevel = player.net?.connection?.authLevel ?? 0;
+                if (player.IsAdmin || authLevel >= 2) role = "admin";
+                else if (authLevel == 1) role = "mod";
+                else if (permission.UserHasPermission(player.UserIDString, "rustduckbot.admin")) role = "admin";
+                else if (permission.UserHasPermission(player.UserIDString, "rustduckbot.mod")) role = "mod";
+                else if (permission.UserHasPermission(player.UserIDString, "rustduckbot.vip")) role = "vip";
+
                 session = new PlayerSession
                 {
                     PlayerId = player.userID,
                     DisplayName = player.displayName,
-                    Role = permission.UserHasPermission(player.UserIDString, "rustduckbot.admin") ? "admin"
-                        : permission.UserHasPermission(player.UserIDString, "rustduckbot.mod") ? "mod"
-                        : permission.UserHasPermission(player.UserIDString, "rustduckbot.vip") ? "vip"
-                        : "user",
+                    Role = role,
                     SessionStart = DateTime.Now,
                     LastSeen = DateTime.Now,
                     IsOnline = true
@@ -716,6 +725,13 @@ namespace Oxide.Plugins
             session.DisplayName = player.displayName;
             session.IsOnline = true;
             session.LastSeen = DateTime.Now;
+            // Refresh role from game admin/mod status and Oxide permissions
+            var authLevelRefresh = player.net?.connection?.authLevel ?? 0;
+            if (player.IsAdmin || authLevelRefresh >= 2) session.Role = "admin";
+            else if (authLevelRefresh == 1) session.Role = "mod";
+            else if (permission.UserHasPermission(player.UserIDString, "rustduckbot.admin")) session.Role = "admin";
+            else if (permission.UserHasPermission(player.UserIDString, "rustduckbot.mod")) session.Role = "mod";
+            else if (permission.UserHasPermission(player.UserIDString, "rustduckbot.vip")) session.Role = "vip";
             session.Permissions = new HashSet<string>(new[]
             {
                 "rustduckbot.use",
@@ -1168,6 +1184,15 @@ namespace Oxide.Plugins
                 // Decay check every 5 min
                 _decayTimer = timer.Every(300f, () => DecayCheckCallback(null));
 
+                // AFK check every 60s
+                _afkCheckTimer = timer.Every(60f, () => AFKCheckCallback(null));
+
+                // Auto-save every 5 min
+                _autoSaveTimer = timer.Every(300f, () => AutoSaveCallback(null));
+
+                // Radar update every 10s
+                _radarTimer = timer.Every(10f, () => RadarCallback(null));
+
                 // Subscribe to hooks
                 // Hooks disabled — Rust types not available in Oxide.Compiler
                 // Re-enable individually once hook implementations are verified for this build
@@ -1262,6 +1287,14 @@ namespace Oxide.Plugins
             try
             {
                 if (_config == null) _config = new ConfigData();
+                // Update AFK activity on any command use
+                var cmdSession = GetOrCreateSession(player);
+                cmdSession.LastActivity = DateTime.Now;
+                if (cmdSession.IsAFK && !cmdSession._afkManual)
+                {
+                    cmdSession.IsAFK = false;
+                    cmdSession._afkAutoDetected = false;
+                }
                 if (args == null) args = Array.Empty<string>();
                 LogDuckBotDebug($"CmdDuckBot player={player.displayName} command={command} args={args?.Length ?? 0}");
 
@@ -1766,7 +1799,14 @@ namespace Oxide.Plugins
             PrintToChat(player, $"<color={roleColor}>Role:</color> {session.Role.ToUpper()}");
             PrintToChat(player, $"<color=#FFD700>Name:</color> {player.displayName}");
             PrintToChat(player, $"<color=#FFD700>SteamID:</color> {player.UserIDString}");
-            PrintToChat(player, $"<color=#FFD700>Admin:</color> {(player.IsAdmin ? "<color=#00FF00>YES" : "<color=#FF4444>NO")}");
+            var whoamiAuth = player.net?.connection?.authLevel ?? 0;
+            PrintToChat(player, $"<color=#FFD700>Game Admin:</color> {(player.IsAdmin || whoamiAuth >= 2 ? "<color=#00FF00>YES" : "<color=#FF4444>NO")}");
+            PrintToChat(player, $"<color=#FFD700>Game Mod:</color> {(whoamiAuth == 1 ? "<color=#00FF00>YES" : "<color=#FF4444>NO")}");
+            PrintToChat(player, $"<color=#FFD700>Auth Level:</color> {whoamiAuth}");
+            var perms = new List<string>();
+            foreach (var p in new[] { "rustduckbot.use", "rustduckbot.vip", "rustduckbot.mod", "rustduckbot.admin", "rustduckbot.economy", "rustduckbot.teleport" })
+                if (permission.UserHasPermission(player.UserIDString, p)) perms.Add(p.Replace("rustduckbot.", ""));
+            PrintToChat(player, $"<color=#FFD700>Permissions:</color> {(perms.Count > 0 ? string.Join(", ", perms) : "none")}");
             PrintToChat(player, $"<color=#FFD700>Kills:</color> {session.Kills}");
             PrintToChat(player, $"<color=#FFD700>Deaths:</color> {session.Deaths}");
             PrintToChat(player, $"<color=#FFD700>K/D:</color> {kd}");
@@ -2354,7 +2394,7 @@ namespace Oxide.Plugins
             PrintToChat(player, "<color=#FFD700>═══ Active Events ═══</color>");
             foreach (var e in _activeAdminEvents)
             {
-                var elapsed = (DateTime.Now - e.Value.StartTime).Seconds;
+                var elapsed = (int)(DateTime.Now - e.Value.StartTime).TotalSeconds;
                 var remaining = Math.Max(0, e.Value.DurationSeconds - elapsed);
                 PrintToChat(player, $"<color=#00FF88>{e.Key}</color> — {e.Value.HostName} | {remaining}s remaining | {e.Value.Participants.Count} joined");
             }
@@ -3627,7 +3667,7 @@ namespace Oxide.Plugins
             PrintToChat(target, $"Expires in {_config.TeleportRequestSeconds}s.");
 
             // Auto-expire the request
-            timer.Once(_config.TeleportRequestSeconds * 1000f, () =>
+            timer.Once(_config.TeleportRequestSeconds, () =>
             {
                 if (_teleportRequests.TryGetValue(target.userID, out var r) && r.FromId == player.userID)
                 {
@@ -4168,6 +4208,7 @@ namespace Oxide.Plugins
             }
             if (scrapReward > 0)
                 Server.Command("scavenger.additem \"" + player.UserIDString + "\" scrap " + scrapReward);
+            if (rpReward > 0) session.RP += rpReward;
             PrintToChat(player, "<color=#FFD700>Daily Reward</color>");
             PrintToChat(player, $"<color=#00FF88>+{scrapReward} scrap</color>" + (isVip && _config.VipBonusMultiplier > 1f ? " <color=#FFD700>(VIP Boost)</color>" : ""));
             if (rpReward > 0) PrintToChat(player, $"<color=#4DA6FF>+{rpReward} RP</color>");
@@ -4775,17 +4816,19 @@ namespace Oxide.Plugins
                 var rp = amount / Math.Max(1, rate);
                 if (rp < 1) { PrintToChat(player, $"Minimum exchange is {rate} scrap for 1 RP."); return; }
                 session.TotalScrap -= amount;
+                session.RP += rp;
                 PrintToChat(player, $"<color=#FFD700>Exchanged {amount} scrap for {rp} RP.</color>");
                 LogActivity("economy", "exchange", $"scrap->rp: {amount} scrap, {rp} RP to {player.displayName}", player.UserIDString, player.displayName);
                 return;
             }
             if (type == "rp")
             {
-                var scrapNeeded = amount * Math.Max(1, rate);
-                if (session.TotalScrap < scrapNeeded) { PrintToChat(player, $"Not enough scrap. Need {scrapNeeded}, have {session.TotalScrap}."); return; }
-                session.TotalScrap -= scrapNeeded;
-                PrintToChat(player, $"<color=#FFD700>Exchanged {scrapNeeded} scrap for {amount} RP.</color>");
-                LogActivity("economy", "exchange", $"rp->scrap: {scrapNeeded} scrap, {amount} RP to {player.displayName}", player.UserIDString, player.displayName);
+                if (session.RP < amount) { PrintToChat(player, $"Not enough RP. Have {session.RP}."); return; }
+                var scrapGiven = amount * Math.Max(1, rate);
+                session.RP -= amount;
+                session.TotalScrap += scrapGiven;
+                PrintToChat(player, $"<color=#FFD700>Exchanged {amount} RP for {scrapGiven} scrap.</color>");
+                LogActivity("economy", "exchange", $"rp->scrap: {amount} RP for {scrapGiven} scrap to {player.displayName}", player.UserIDString, player.displayName);
                 return;
             }
             PrintToChat(player, "Use: /db shop exchange scrap <amount> or /db shop exchange rp <amount>");
@@ -5358,6 +5401,12 @@ namespace Oxide.Plugins
                 case "security_scan":
                     LogActivity("security", "MCP scan requested", $"radius={GetMessageString(message, "radius", "100")}", GetMessageString(message, "requester_id"));
                     break;
+                case "mcp_event_create":
+                    HandleMCPEventCreate(message);
+                    break;
+                case "mcp_event_cancel":
+                    HandleMCPEventCancel(message);
+                    break;
                 default:
                     PrintAsh($"[MCP] Unhandled message: {type}");
                     break;
@@ -5528,6 +5577,29 @@ namespace Oxide.Plugins
             PrintToChat(target, "<color=#00FF88>DuckBot granted kit:</color> " + kit.DisplayName);
         }
 
+        private void HandleMCPEventCreate(Dictionary<string, object> message)
+        {
+            var eventType = GetMessageString(message, "event_type");
+            var args = GetMessageString(message, "args", "");
+            var requesterId = GetMessageString(message, "requester_id", "mcp");
+            if (string.IsNullOrWhiteSpace(eventType)) return;
+            var player = BasePlayer.activePlayerList.FirstOrDefault(p => p.UserIDString == requesterId);
+            if (player == null) { PrintAsh($"[MCP] Event create: requester {requesterId} not online"); return; }
+            var session = GetOrCreateSession(player);
+            HandleAdminEvent(player, session, "start " + eventType + " " + args);
+        }
+
+        private void HandleMCPEventCancel(Dictionary<string, object> message)
+        {
+            var eventType = GetMessageString(message, "event_type");
+            var requesterId = GetMessageString(message, "requester_id", "mcp");
+            if (string.IsNullOrWhiteSpace(eventType)) return;
+            var player = BasePlayer.activePlayerList.FirstOrDefault(p => p.UserIDString == requesterId);
+            if (player == null) { PrintAsh($"[MCP] Event cancel: requester {requesterId} not online"); return; }
+            var session = GetOrCreateSession(player);
+            HandleAdminEvent(player, session, "stop " + eventType);
+        }
+
         private string GetMessageString(Dictionary<string, object> message, string key, string fallback = "")
         {
             if (!message.TryGetValue(key, out var value) || value == null) return fallback;
@@ -5557,6 +5629,35 @@ namespace Oxide.Plugins
         {
             if (!_serverInitialized) return;
             var players = BasePlayer.activePlayerList;
+
+            // AFK movement detection — update LastActivity if player moved
+            foreach (var p in players)
+            {
+                var pos = p.transform.position;
+                if (_lastPlayerPosition.TryGetValue(p.userID, out var lastPos))
+                {
+                    var dist = Vector3.Distance(pos, lastPos);
+                    if (dist > 0.5f) // player moved at least 0.5 units
+                    {
+                        var session = GetOrCreateSession(p);
+                        session.LastActivity = DateTime.Now;
+                        if (session.IsAFK && !session._afkManual)
+                        {
+                            session.IsAFK = false;
+                            session._afkAutoDetected = false;
+                        }
+                        _afkIdleTicks[p.userID] = 0;
+                    }
+                    else
+                    {
+                        // Player hasn't moved — increment idle ticks
+                        if (!_afkIdleTicks.ContainsKey(p.userID)) _afkIdleTicks[p.userID] = 0;
+                        _afkIdleTicks[p.userID]++;
+                    }
+                }
+                _lastPlayerPosition[p.userID] = pos;
+            }
+
             var playerList = players.Select(p => new { id = p.UserIDString, name = p.displayName, ping = 0, role = GetOrCreateSession(p).Role, connectedAt = GetOrCreateSession(p).SessionStart.ToString("o"), position = GetGridCoord(p.transform.position), nearestMonument = GetNearestMonument(p.transform.position) }).ToList();
 
             var onlineNow = new HashSet<ulong>();
@@ -5750,9 +5851,13 @@ namespace Oxide.Plugins
         private bool CanUseKit(BasePlayer player, PlayerSession session, KitDefinition kit, out string reason)
         {
             reason = null;
-            if (!string.IsNullOrEmpty(kit.Permission) &&
-                !permission.UserHasPermission(player.UserIDString, kit.Permission) &&
-                !HasRoleOrHigher(session.Role, "admin"))
+            // Admins and mods bypass all kit permission checks
+            var kitAuthLevel = player.net?.connection?.authLevel ?? 0;
+            var isPrivileged = player.IsAdmin || kitAuthLevel >= 1 ||
+                HasRoleOrHigher(session.Role, "mod");
+            if (!isPrivileged &&
+                !string.IsNullOrEmpty(kit.Permission) &&
+                !permission.UserHasPermission(player.UserIDString, kit.Permission))
             {
                 reason = "Permission required: " + kit.Permission;
                 return false;
@@ -6126,18 +6231,21 @@ namespace Oxide.Plugins
         private void AFKCheckCallback(object state)
         {
             if (!_config.EnableAutoFeatures) return;
+            var heartbeatIntervalSeconds = 30f; // heartbeat runs every 30s
             foreach (var player in BasePlayer.activePlayerList)
             {
                 var session = GetOrCreateSession(player);
                 if (!session.IsOnline || !player.IsConnected) continue;
-                if (session.IsAFK && !session._afkManual) continue;
+                if (session.IsAFK && session._afkManual) continue; // manual AFK — skip auto-detection
                 var idleTime = (DateTime.Now - session.LastActivity).TotalMinutes;
-                if (idleTime >= _config.AFKKickMinutes && _config.AutoKickAFK)
+                var idleTicks = _afkIdleTicks.ContainsKey(player.userID) ? _afkIdleTicks[player.userID] : 0;
+                // Only flag AFK if player hasn't moved for multiple heartbeat cycles
+                if (idleTime >= _config.AFKKickMinutes && _config.AutoKickAFK && idleTicks >= 4)
                 {
                     player.Kick("AFK timeout");
                     LogActivity("system", "AFK Kick", $"Kicked {player.displayName} after {idleTime:F0} min idle");
                 }
-                else if (idleTime >= _config.AFKTimeoutMinutes && !session.IsAFK)
+                else if (idleTime >= _config.AFKTimeoutMinutes && !session.IsAFK && idleTicks >= 4)
                 {
                     session.IsAFK = true;
                     session._afkAutoDetected = true;
@@ -6309,7 +6417,9 @@ namespace Oxide.Plugins
             }
             else
             {
-                foreach (var mid in group.Members) { var m = BasePlayer.Find(mid.ToString()); if (m != null && mid != player.userID) PrintToChat(m, $"<color=#FF4444>{player.displayName} left the group.</color>"); _groups.Remove(mid); }
+                foreach (var mid in group.Members) { var m = BasePlayer.Find(mid.ToString()); if (m != null && mid != player.userID) PrintToChat(m, $"<color=#FF4444>{player.displayName} left the group.</color>"); }
+                group.Members.Remove(player.userID);
+                _groups.Remove(player.userID);
                 PrintToChat(player, "<color=#00FF88>You left the group.</color>");
                 return;
             }
@@ -6521,16 +6631,9 @@ namespace Oxide.Plugins
 
         private string GetNearestMonument(Vector3 pos)
         {
-            var monuments = new Dictionary<string, Vector3> {
-                { "Oil Rig", new Vector3(0, 0, 0) },
-                { "Airfield", new Vector3(1000, 0, 1000) },
-                { "Dome", new Vector3(-500, 0, -500) },
-                { "Power Plant", new Vector3(2000, 0, -1500) },
-                { "Outpost", new Vector3(-1500, 0, 1000) }
-            };
             string nearest = "Unknown";
             float minDist = float.MaxValue;
-            foreach (var m in monuments)
+            foreach (var m in _monumentLocations)
             {
                 var dist = Vector3.Distance(pos, m.Value);
                 if (dist < minDist) { minDist = dist; nearest = m.Key; }
@@ -6567,6 +6670,10 @@ namespace Oxide.Plugins
 
         public bool IsConnected => _connected && _ws?.State == WebSocketState.Open;
 
+        private int _reconnectAttempts = 0;
+        private const int MAX_RECONNECT_ATTEMPTS = 10;
+        private const int BASE_RECONNECT_DELAY_MS = 5000;
+
         public async Task ConnectAsync()
         {
             try
@@ -6576,17 +6683,28 @@ namespace Oxide.Plugins
                 _ws = new ClientWebSocket();
                 await _ws.ConnectAsync(uri, _cts.Token);
                 _connected = true;
+                _reconnectAttempts = 0;
                 DefaultInstance = this;
                 _plugin.PrintAsh($"MCP connected to {uri}");
-                await SendAsync(new { type = "rust_hello", version = "1.2.0", plugin = "RustDuckBot" });
+                await SendAsync(new { type = "rust_hello", version = "1.4.5", plugin = "RustDuckBot" });
                 _receiveTask = ReceiveLoop();
             }
             catch (Exception ex)
             {
-                _plugin.PrintAsh($"MCP connect failed: {ex.Message}");
                 _connected = false;
-                await Task.Delay(5000);
-                _ = ConnectAsync();
+                _reconnectAttempts++;
+                if (_reconnectAttempts <= MAX_RECONNECT_ATTEMPTS)
+                {
+                    var delay = Math.Min(BASE_RECONNECT_DELAY_MS * (1 << Math.Min(_reconnectAttempts - 1, 5)), 120000);
+                    if (_reconnectAttempts <= 3 || _reconnectAttempts % 5 == 0)
+                        _plugin.PrintAsh($"MCP connect failed (attempt {_reconnectAttempts}/{MAX_RECONNECT_ATTEMPTS}): {ex.Message}");
+                    await Task.Delay(delay);
+                    _ = ConnectAsync();
+                }
+                else
+                {
+                    _plugin.PrintAsh($"MCP connect failed after {MAX_RECONNECT_ATTEMPTS} attempts. Giving up. Reload plugin to retry.");
+                }
             }
         }
 
@@ -6852,7 +6970,7 @@ namespace Oxide.Plugins
         {
             if (obj == null) return "null";
             var stringValue = obj as string;
-            if (stringValue != null) return $"\"{stringValue.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n")}\"";
+            if (stringValue != null) return $"\"{stringValue.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "").Replace("\n", "\\n").Replace("\t", "\\t")}\"";
             if (obj is bool) return (bool)obj ? "true" : "false";
             if (obj is int || obj is long || obj is short || obj is byte || obj is uint || obj is ulong || obj is ushort || obj is sbyte || obj is float || obj is double || obj is decimal)
                 return Convert.ToString(obj, CultureInfo.InvariantCulture);
@@ -6955,10 +7073,19 @@ namespace Oxide.Plugins
                     wb.Headers["Authorization"] = $"Bearer {_lmKey}";
 
                 var payload = new Dictionary<string, object> { { "model", _lmModel }, { "messages", BuildMessages(message, history, _systemPrompt) }, { "max_tokens", 600 } };
-                var raw = wb.UploadString(ChatCompletionsUrl(_lmUrl), "POST", SimpleJson.Serialize(payload));
-
-                var content = ExtractOpenAIContent(raw);
-                return content ?? "No response from local AI.";
+                var json = SimpleJson.Serialize(payload);
+                try
+                {
+                    var raw = wb.UploadString(ChatCompletionsUrl(_lmUrl), "POST", json);
+                    var content = ExtractOpenAIContent(raw);
+                    return content ?? "No response from local AI.";
+                }
+                catch (System.Net.WebException wex)
+                {
+                    var resp = wex.Response as System.Net.HttpWebResponse;
+                    var body = resp != null ? new System.IO.StreamReader(resp.GetResponseStream()).ReadToEnd() : "";
+                    return $"AI error ({_provider}): {resp?.StatusCode} — {body}";
+                }
             }
         }
 
