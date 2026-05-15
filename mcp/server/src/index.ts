@@ -473,11 +473,17 @@ export function createState(): DuckBotState {
 }
 
 const schema = {
-  string: (description: string) => ({ type: 'string', description }),
+  string: (description: string, _example?: string) => ({ type: 'string', description }),
   number: (description: string) => ({ type: 'number', description }),
   boolean: (description: string) => ({ type: 'boolean', description }),
+  integer: (description: string) => ({ type: 'integer', description }),
   role: { type: 'string', enum: ['user', 'vip', 'mod', 'admin'], description: 'Requester role when the caller already knows it.' },
 };
+
+function optionalInteger(obj: any, key: string, fallback: number): number {
+  const v = obj?.[key];
+  return typeof v === 'number' && Number.isInteger(v) ? v : fallback;
+}
 
 export const ALL_TOOLS = [
   {
@@ -622,6 +628,90 @@ export const ALL_TOOLS = [
     name: 'rust_bridge_status',
     description: 'Inspect MCP bridge health, client count, queue depth, last heartbeat, and latest RCON response time.',
     inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'rust_admin_event_create',
+    description: 'Start a server-wide random event (coinflip, jackpot, scavenger, dropparty). Requires mod+ role. AI narrates the result.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        event_type: { type: 'string', enum: ['coinflip', 'jackpot', 'scavenger', 'dropparty'], description: 'Event type to start.' },
+        args: schema.string('Event-specific argument: coinflip=scrap pot, jackpot=scrap amount, scavenger=duration in seconds, dropparty=item name.'),
+        requester_id: schema.string('Admin/Mod Steam ID.'),
+        requester_role: schema.role,
+      },
+      required: ['event_type', 'requester_id', 'requester_role'],
+    },
+  },
+  {
+    name: 'rust_admin_event_list',
+    description: 'List active admin/mod events, participants, remaining time, and prize pools.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'rust_admin_event_cancel',
+    description: 'Cancel an active server event by type. Requires mod+ role.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        event_type: { type: 'string', description: 'Event type to cancel (coinflip, jackpot, scavenger, dropparty).' },
+        requester_id: schema.string('Admin/Mod Steam ID.'),
+        requester_role: schema.role,
+      },
+      required: ['event_type', 'requester_id', 'requester_role'],
+    },
+  },
+  {
+    name: 'rust_economy_status',
+    description: 'Get economy overview: daily reward status, active events, VIP bonus multiplier, and recent loot game results.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'rust_vip_bonus_info',
+    description: 'Get current VIP bonus multiplier and what rewards it applies to (daily, killstreak).',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'rust_lucky_block_prizes',
+    description: 'List the current lucky block prize tiers, drop rates, and reward items. Shows what VIP players can win.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'rust_guess_game_status',
+    description: 'Check if a player currently has an active number guessing game running, including guesses left and current prize pool.',
+    inputSchema: {
+      type: 'object',
+      properties: { player_id: schema.string('Steam ID of player to check.') },
+      required: ['player_id'],
+    },
+  },
+  {
+    name: 'rust_get_player_stats',
+    description: 'Get player statistics: kills, deaths, K/D ratio, playtime, total scrap, daily claims, and activity level.',
+    inputSchema: {
+      type: 'object',
+      properties: { player_id: schema.string('Steam ID of player.') },
+      required: ['player_id'],
+    },
+  },
+  {
+    name: 'rust_leaderboard',
+    description: 'Get server leaderboard by category: kills, K/D, scrap earned, events won, or activity score.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        category: schema.string('kills | kd | scrap | events | activity'),
+        limit: schema.number('Max entries to return (default 10).'),
+      },
+    },
+  },
+  {
+    name: 'rust_shop_listings',
+    description: 'Get current player-to-player shop listings, prices, and seller info.',
+    inputSchema: {
+      type: 'object',
+      properties: { filter: schema.string('Optional item name filter.') },
+    },
   },
   {
     name: 'rust_chat_send',
@@ -1093,6 +1183,90 @@ export async function handleToolCall(
 
     case 'rust_bridge_status':
       return jsonResult({ bridgeClients: state.rustClients.size, queuedMessages: state.outboundMessages.length, bridgeStartedAt: state.bridgeStartedAt, lastHeartbeat: state.server.lastUpdated, mcpConnected: state.server.mcpConnected, rconConnected: state.server.rconConnected, latestRcon: latestRconResponse(state) ?? null });
+
+    case 'rust_admin_event_create': {
+      const denied = requireRole(state, args, 'mod');
+      if (denied) return denied;
+      const eventType = requiredString(args, 'event_type') ?? 'unknown';
+      const reqId = requiredString(args, 'requester_id') ?? 'mcp';
+      const reqRole = optionalString(args, 'requester_role', 'mod');
+      recordActivity(state, 'event', eventType, `Started by ${reqId}`, reqId, undefined, config.maxHistory);
+      const sent = sendToRust(state, { type: 'mcp_event_create', event_type: eventType, args: optionalString(args, 'args', ''), requester_id: reqId, requester_role: reqRole });
+      return jsonResult({ status: sent ? 'sent' : 'queued', event_type: eventType, args: optionalString(args, 'args', ''), started_by: reqId });
+    }
+
+    case 'rust_admin_event_list': {
+      const events = state.activity
+        .filter(e => e.category === 'event')
+        .slice(-10)
+        .map(e => ({ action: e.action, details: e.details, playerId: e.playerId }));
+      return jsonResult({ active_events: events, count: events.length, note: 'Event state is maintained by the Rust plugin; this shows recent event history from activity log.' });
+    }
+
+    case 'rust_admin_event_cancel': {
+      const denied = requireRole(state, args, 'mod');
+      if (denied) return denied;
+      const eventType = requiredString(args, 'event_type') ?? 'unknown';
+      const reqId = requiredString(args, 'requester_id') ?? 'mcp';
+      recordActivity(state, 'event', 'cancelled', eventType, reqId, undefined, config.maxHistory);
+      const sent = sendToRust(state, { type: 'mcp_event_cancel', event_type: eventType, requester_id: reqId });
+      return jsonResult({ status: sent ? 'sent' : 'queued', event_type: eventType, cancelled_by: reqId });
+    }
+
+    case 'rust_economy_status': {
+      const events = state.activity.filter(e => e.category === 'event').slice(-5).map(e => ({ type: e.action, details: e.details }));
+      const vipActivity = state.activity.filter(e => e.action.includes('VIP') || e.details.includes('VIP')).slice(-5);
+      return jsonResult({ active_events: events, vip_activity: vipActivity, note: 'Economy state (daily timers, prize pools, active guess games) is maintained by the Rust plugin. This shows recent event and VIP reward history.' });
+    }
+
+    case 'rust_vip_bonus_info': {
+      return jsonResult({ vip_bonus_multiplier: 1.5, applies_to: ['daily_reward_scrap', 'daily_reward_rp', 'killstreak_scrap'], note: 'VIP multiplier is configured in the Rust plugin config. Check RustDuckBot.json for the current VipBonusMultiplier value.' });
+    }
+
+    case 'rust_lucky_block_prizes': {
+      return jsonResult({ tiers: [{ rarity: 'EPIC (5%)', items: ['3x explosive.timed'] }, { rarity: 'RARE (10%)', items: ['1x metal.plate.torso'] }, { rarity: 'UNCOMMON (20%)', items: ['800x scrap'] }, { rarity: 'COMMON (65%)', items: ['400x scrap', '150x scrap'] }], cost: 200, requirement: 'VIP or rustduckbot.vip permission' });
+    }
+
+    case 'rust_get_player_stats': {
+      const playerId = requiredString(args, 'player_id');
+      const playerActivity = state.activity.filter(e => e.playerId === playerId);
+      const kills = playerActivity.filter(e => e.action === 'kill').length;
+      const deaths = playerActivity.filter(e => e.action === 'death').length;
+      const scrapTotal = playerActivity.filter(e => e.action === 'scrap').reduce((sum, e) => sum + (parseInt(e.details.split('+').filter(Boolean)[0]?.replace(/\D/g, '') ?? '0')), 0);
+      const dailyClaims = playerActivity.filter(e => e.action === 'daily').length;
+      const eventsWon = playerActivity.filter(e => e.action === 'won').length;
+      const kd = deaths > 0 ? (kills / deaths).toFixed(2) : kills > 0 ? kills.toFixed(2) : '0.00';
+      const activeScore = playerActivity.length;
+      return jsonResult({ player_id: playerId, kills, deaths, kd, scrap_total: scrapTotal, daily_claims: dailyClaims, events_won: eventsWon, activity_score: activeScore, note: 'Detailed stats (kills/deaths/scrap per session) are tracked by the Rust plugin. This summary is from the MCP activity log.' });
+    }
+
+    case 'rust_leaderboard': {
+      const category = optionalString(args, 'category', 'kills');
+      const limit = Math.min(optionalInteger(args, 'limit', 10), 50);
+      const playerScores: Record<string, number> = {};
+      for (const entry of state.activity) {
+        if (!entry.playerId) continue;
+        if (category === 'kills') { if (entry.action === 'kill') playerScores[entry.playerId] = (playerScores[entry.playerId] ?? 0) + 1; }
+        else if (category === 'events') { if (entry.action === 'won') playerScores[entry.playerId] = (playerScores[entry.playerId] ?? 0) + 1; }
+        else if (category === 'activity') { playerScores[entry.playerId] = (playerScores[entry.playerId] ?? 0) + 1; }
+      }
+      const sorted = Object.entries(playerScores).sort((a, b) => b[1] - a[1]).slice(0, limit);
+      return jsonResult({ category, entries: sorted.map(([pid, score], i) => ({ rank: i + 1, player_id: pid, score })), total_players: sorted.length });
+    }
+
+    case 'rust_shop_listings': {
+      const filter = optionalString(args, 'filter', '');
+      // Shop listings are maintained by the Rust plugin; reflect recent shop activity from the log
+      const shopActivity = state.activity.filter(e => e.category === 'economy' && (e.action === 'shop_add' || e.action === 'shop_buy'));
+      const listings = shopActivity.slice(-20).map(e => ({ action: e.action, details: e.details, playerId: e.playerId, time: e.time }));
+      return jsonResult({ listings, count: listings.length, active_count: 0, note: 'Live shop listings (item name, price, seller) are maintained by the Rust plugin. Use /db shop list in-game to see them. This shows recent shop activity.' });
+    }
+
+    case 'rust_guess_game_status': {
+      const playerId = requiredString(args, 'player_id');
+      const recentActivity = state.activity.filter(e => e.playerId === playerId && e.category === 'game' && e.action === 'guess').slice(-1);
+      return jsonResult({ player_id: playerId, active_game: recentActivity.length > 0 ? { note: 'Active game state is maintained by the Rust plugin. Check /db guess in-game for current state.' } : null, guidance: 'Direct player to use /db guess in-game to check their current game state, guesses remaining, and prize pool.' });
+    }
 
     case 'rust_chat_send':
     case 'rust_send_chat': {
@@ -1618,6 +1792,9 @@ export function createMcpServer(state: DuckBotState, config: ServerConfig): Serv
       { uri: 'rustduckbot://activity', name: 'Activity/audit log', mimeType: 'application/json' },
       { uri: 'rustduckbot://automation', name: 'Automation rules', mimeType: 'application/json' },
       { uri: 'rustduckbot://monuments', name: 'Known monuments', mimeType: 'application/json' },
+      { uri: 'rustduckbot://events', name: 'Recent server events and loot games', mimeType: 'application/json' },
+      { uri: 'rustduckbot://economy', name: 'Economy overview, VIP bonuses, event history', mimeType: 'application/json' },
+      { uri: 'rustduckbot://leaderboard', name: 'Player leaderboards by kills, events, activity', mimeType: 'application/json' },
     ],
   }));
 
@@ -1635,6 +1812,14 @@ export function createMcpServer(state: DuckBotState, config: ServerConfig): Serv
     if (uri === 'rustduckbot://activity') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(state.activity, null, 2) }] };
     if (uri === 'rustduckbot://automation') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(Array.from(state.automationRules.values()), null, 2) }] };
     if (uri === 'rustduckbot://monuments') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(state.server.monuments ?? [], null, 2) }] };
+    if (uri === 'rustduckbot://events') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify({ recent: state.activity.filter(e => e.category === 'event').slice(-20), active_count: state.activity.filter(e => e.category === 'event').length }, null, 2) }] };
+    if (uri === 'rustduckbot://economy') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify({ vip_bonus_multiplier: 1.5, vip_applies_to: ['daily_reward', 'killstreak'], recent_events: state.activity.filter(e => e.category === 'event').slice(-10), recent_games: state.activity.filter(e => e.category === 'game').slice(-10) }, null, 2) }] };
+    if (uri === 'rustduckbot://leaderboard') {
+      const playerScores: Record<string, number> = {};
+      for (const entry of state.activity) { if (!entry.playerId) continue; playerScores[entry.playerId] = (playerScores[entry.playerId] ?? 0) + 1; }
+      const sorted = Object.entries(playerScores).sort((a, b) => b[1] - a[1]).slice(0, 20).map(([pid, score], i) => ({ rank: i + 1, player_id: pid, activity_score: score }));
+      return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify({ category: 'activity', entries: sorted }, null, 2) }] };
+    }
     return { contents: [{ uri, mimeType: 'text/plain', text: `Unknown resource: ${uri}` }] };
   });
 

@@ -29,16 +29,18 @@ namespace Oxide.Plugins
         {
             public string MCPServerHost = "127.0.0.1";
             public int MCPServerPort = 3851;
-            public string AgentProvider = "duckbot";  // duckbot | lmstudio | openai | anthropic | openrouter
+            public string AgentProvider = "duckbot";  // duckbot | lmstudio | openai | anthropic | openrouter | minimax
             public string AgentConfig = "http://localhost:18797";
             // LM Studio settings (used when AgentProvider = "lmstudio")
             public string LMStudioUrl = "http://127.0.0.1:1234";
             public string LMStudioModel = "local-model";
             public string LMStudioApiKey = ""; // Optional: for auth if required
-            // OpenAI-compatible settings (used for openai/anthropic/openrouter)
+            // OpenAI-compatible settings (used for openai/anthropic/openrouter/minimax)
             public string OpenAIApiKey = "";
             public string OpenAIBaseUrl = "https://api.openai.com/v1";
             public string OpenAIModel = "gpt-4o-mini";
+            public string MiniMaxApiKey = ""; // MiniMax API key
+            public string MiniMaxModel = "MiniMax-Text-01"; // MiniMax model name
             public bool EnableCameraControl = true;
             public bool EnableAdminCommands = true;
             public bool EnableAutoFeatures = true;
@@ -75,8 +77,26 @@ namespace Oxide.Plugins
             public bool EnableReportSystem = true;
             public int ReportCooldownMinutes = 5;
             public bool EnableAIModeration = true;
-            public bool EnableAutoModeration = false;
+            public bool EnableAutoModeration = true;
+            public bool EnableAIAdmin = false; // EXPERIMENTAL: AI acts autonomously as admin -- disabled by default
             public int AutoModerationReportThreshold = 3;
+            // Discord
+            public bool EnableDiscord = false;
+            public string DiscordWebhookUrl = "";
+            public string DiscordBotName = "RustDuckBot";
+            public bool DiscordPlayerJoinLeave = true;
+            public bool DiscordDeaths = true;
+            public bool DiscordRaidAlerts = false;
+            public bool DiscordEventBroadcasts = true;
+            public bool DiscordAIModeration = true;
+            // Telegram
+            public bool EnableTelegram = false;
+            public string TelegramBotToken = "";
+            public string TelegramChatId = "";
+            public string TelegramBotName = "RustDuckBot";
+            public bool TelegramPlayerJoinLeave = true;
+            public bool TelegramDeaths = true;
+            public bool TelegramEventBroadcasts = true;
             public int AutoModerationKickThreshold = 4;
             public int AutoModerationBanThreshold = 6;
             public int AutoModerationWindowMinutes = 30;
@@ -90,6 +110,10 @@ namespace Oxide.Plugins
             public int DailyRewardScrap = 100;
             public int DailyRewardRP = 20;
             public int PlaytimeBonusMinutes = 60; // bonus after N minutes
+            public float VipBonusMultiplier = 1.5f; // VIP daily/killstreak bonus multiplier
+            public int ShopItemListingFee = 50; // scrap cost to list an item in /db shop
+            public int ShopMaxListingsPerPlayer = 10;
+            public int ShopExchangeRateScrapPerRP = 10; // N scrap per 1 RP in exchange
             // Notifications
             public int MaxNotificationsPerPlayer = 50;
             public bool EnableNightAlert = true;
@@ -206,6 +230,7 @@ namespace Oxide.Plugins
         private Timer _automationTimer;
         private Timer _decayTimer;
         private Timer _radarTimer;
+        private HashSet<ulong> _knownOnlinePlayers = new HashSet<ulong>();
 
         // Data persistence
         private DuckBotData _saveData;
@@ -1392,11 +1417,13 @@ namespace Oxide.Plugins
                 case "kick": HandleKick(player, session, argStr); break;
                 case "ban": HandleBan(player, session, argStr); break;
                 case "unban": HandleUnban(player, session, argStr); break;
+                case "pve": HandlePvE(player, session, argStr); break;
                 case "freeze": HandleFreeze(player, session, argStr); break;
                 case "heal": HandleHeal(player, session, argStr); break;
                 case "give": HandleGive(player, session, argStr); break;
                 case "teleport": case "tp": HandleTeleport(player, session, argStr); break;
                 case "spawn": HandleSpawn(player, session, argStr); break;
+                case "event": HandleAdminEvent(player, session, argStr); break;
 
                 // === TELEPORT ===
                 case "tpr": case "tpa": HandleTPR(player, session, argStr); break;
@@ -1436,6 +1463,11 @@ namespace Oxide.Plugins
                 case "recommend": GetRecommendations(player, session); break;
                 case "analyze": AnalyzeBase(player, session); break;
 
+                // === ADMIN UTILS ===
+                case "broadcast": HandleBroadcast(player, session, argStr); break;
+                case "wipekits": HandleWipeKits(player, session); break;
+                case "backup": HandleBackup(player, session); break;
+
                 // === SETTINGS ===
                 case "settings": case "prefs": ShowSettings(player, session); break;
                 case "set": UpdateSetting(player, session, argStr); break;
@@ -1452,6 +1484,9 @@ namespace Oxide.Plugins
                 case "quote": ShowQuote(player, session); break;
                 case "joke": TellJoke(player, session); break;
                 case "fortune": ShowFortune(player, session); break;
+                case "guess": HandleGuess(player, session, argStr); break;
+                case "lucky": HandleLucky(player, session); break;
+                case "shop": HandleShop(player, session, argStr); break;
                 case "slots": PlaySlots(player, session); break;
                 case "bet": PlaceBet(player, session, argStr); break;
 
@@ -1641,12 +1676,14 @@ namespace Oxide.Plugins
                 PrintToChat(player, "<color=#888>/db freeze <player></color> — Freeze player");
                 PrintToChat(player, "<color=#888>/db msg <player> <msg></color> — Private message");
                 PrintToChat(player, "<color=#888>/db team <msg></color> — Team message");
+                PrintToChat(player, "<color=#888>/db event list|join</color> — List/join server events");
             }
 
             if (HasRoleOrHigher(session.Role, "admin"))
             {
                 PrintToChat(player, "\n<color=#FF4444>━━━ ADMIN COMMANDS ━━━</color>");
                 PrintToChat(player, "<color=#888>/db status</color> — Server status");
+                PrintToChat(player, "<color=#888>/db pve on|off</color> — Toggle PvE mode");
                 PrintToChat(player, "<color=#888>/db ban <player> <reason></color> — Ban player");
                 PrintToChat(player, "<color=#888>/db unban <steamid></color> — Unban player");
                 PrintToChat(player, "<color=#888>/db admin <cmd></color> — Run RCON command");
@@ -1654,6 +1691,8 @@ namespace Oxide.Plugins
                 PrintToChat(player, "<color=#888>/db give <player> <item> <qty></color> — Give items");
                 PrintToChat(player, "<color=#888>/db tp <from> <to></color> — Teleport");
                 PrintToChat(player, "<color=#888>/db spawn <item> <qty></color> — Spawn item");
+                PrintToChat(player, "<color=#888>/db event start <type> <args></color> — Start event");
+                PrintToChat(player, "<color=#888>/db event stop <type></color> — Cancel event");
                 PrintToChat(player, "<color=#888>/db settings</color> — Server settings");
             }
 
@@ -1663,6 +1702,9 @@ namespace Oxide.Plugins
             PrintToChat(player, "<color=#888>/db 8ball <question></color> — Magic 8 ball");
             PrintToChat(player, "<color=#888>/db joke</color> — Random joke");
             PrintToChat(player, "<color=#888>/db fortune</color> — Daily fortune");
+            PrintToChat(player, "<color=#888>/db guess join <bet></color> — Number guessing game");
+            if (HasRoleOrHigher(session.Role, "vip"))
+                PrintToChat(player, "<color=#00BFFF>/db lucky</color> — Lucky block spin (VIP only)");
 
             PrintToChat(player, "\n<color=#FFD700>═══════════════════════════════════════</color>");
             PrintToChat(player, "Type /db <command> to use. Use /db terminal for AI chat.");
@@ -2066,6 +2108,293 @@ namespace Oxide.Plugins
                 var lockedDoors = UnityEngine.Object.FindObjectsOfType<Door>().Count(d => d.IsLocked());
                 PrintToChat(player, $"<color=#FFD700>LOCKDOWN STATUS:</color> {lockedDoors} locked doors");
             }
+        }
+
+        private void HandlePvE(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!HasRoleOrHigher(session.Role, "admin")) { PrintToChat(player, "<color=#FF4444>Admin required</color>"); return; }
+            var mode = args.ToLowerInvariant();
+            if (mode == "on")
+            {
+                Server.Command("server.pve true");
+                PrintToChat(player, "<color=#00FF88>PvE mode ENABLED</color>");
+                Server.Broadcast("⚠ PvE mode is now ENABLED — no player-vs-player combat");
+                LogActivity("admin", "PvE", "Enabled by " + player.displayName);
+            }
+            else if (mode == "off")
+            {
+                Server.Command("server.pve false");
+                PrintToChat(player, "<color=#FF6644>PvE mode DISABLED</color>");
+                Server.Broadcast("⚠ PvE mode is now DISABLED — PvP enabled");
+                LogActivity("admin", "PvE", "Disabled by " + player.displayName);
+            }
+            else
+            {
+                PrintToChat(player, "<color=#FFD700>═══ PvE Mode Control ═══</color>");
+                PrintToChat(player, "<color=#AAA>/db pve on</color> — Enable PvE (peaceful mode)");
+                PrintToChat(player, "<color=#AAA>/db pve off</color> — Disable PvE (PvP enabled)");
+                PrintToChat(player, "<color=#888>Requires admin role.</color>");
+            }
+        }
+
+        // ── Admin/Mod Random Events ──────────────────────────────────────────
+        private enum AdminEventType { CoinFlip, Jackpot, ScavengerHunt, DropParty }
+
+        private class ActiveAdminEvent
+        {
+            public AdminEventType Type;
+            public DateTime StartTime;
+            public int DurationSeconds;
+            public string HostName;
+            public List<ulong> Participants = new List<ulong>();
+            public string PrizeJson;
+        }
+
+        private readonly Dictionary<string, ActiveAdminEvent> _activeAdminEvents = new Dictionary<string, ActiveAdminEvent>();
+        private readonly Dictionary<ulong, int> _guessGameState = new Dictionary<ulong, int>(); // player -> current guess
+
+        // ── Admin Utilities ─────────────────────────────────────────────────
+        private void HandleBroadcast(BasePlayer player, PlayerSession session, string msg)
+        {
+            if (!HasRoleOrHigher(session.Role, "admin")) { PrintToChat(player, "<color=#FF4444>Admin required</color>"); return; }
+            if (string.IsNullOrWhiteSpace(msg)) { PrintToChat(player, "<color=#FFD700>Usage:</color> /db broadcast <message>"); return; }
+            var formatted = $"<color=#FFD700>[ADMIN BROADCAST]</color> {msg}";
+            Server.Broadcast(formatted);
+            PrintToChat(player, $"<color=#00FF88>Broadcast sent.</color>");
+            LogActivity("admin", "Broadcast", msg, player.UserIDString, player.displayName);
+        }
+
+        private void HandleWipeKits(BasePlayer player, PlayerSession session)
+        {
+            if (!HasRoleOrHigher(session.Role, "admin")) { PrintToChat(player, "<color=#FF4444>Admin required</color>"); return; }
+            foreach (var p in BasePlayer.activePlayerList)
+            {
+                var sess = GetOrCreateSession(p);
+                sess.LastKitUse = DateTime.MinValue;
+                sess.KitUsesToday = 0;
+            }
+            Server.Broadcast("<color=#FF4444>⚠ WIPE DAY: All kit cooldowns have been reset.</color>");
+            PrintToChat(player, "<color=#00FF88>Kit cooldowns wiped for all players.</color>");
+            LogActivity("admin", "WipeKits", "All kit cooldowns reset by " + player.displayName, player.UserIDString, player.displayName);
+        }
+
+        private void HandleBackup(BasePlayer player, PlayerSession session)
+        {
+            if (!HasRoleOrHigher(session.Role, "admin")) { PrintToChat(player, "<color=#FF4444>Admin required</color>"); return; }
+            PrintToChat(player, "<color=#FFD700>Running server save + config backup...</color>");
+            Server.Command("save.all");
+            Server.Command("server.backup");
+            PrintToChat(player, "<color=#00FF88>Save + backup command issued. Check server logs for status.</color>");
+            LogActivity("admin", "Backup", "Backup triggered by " + player.displayName, player.UserIDString, player.displayName);
+        }
+
+        // ── Discord & Telegram Notifications ───────────────────────────────
+        private void SendDiscord(string message, string eventType)
+        {
+            if (!_config.EnableDiscord || string.IsNullOrEmpty(_config.DiscordWebhookUrl)) return;
+            try
+            {
+                using (var wb = new System.Net.WebClient())
+                {
+                    wb.Headers["Content-Type"] = "application/json";
+                    var payload = SimpleJson.Serialize(new { content = $"[{_config.DiscordBotName}] {message}" });
+                    wb.UploadString(_config.DiscordWebhookUrl, "POST", payload);
+                }
+            }
+            catch (Exception ex) { PrintToServer($"Discord notification failed: {ex.Message}"); }
+        }
+
+        private void SendTelegram(string message, string eventType)
+        {
+            if (!_config.EnableTelegram || string.IsNullOrEmpty(_config.TelegramBotToken) || string.IsNullOrEmpty(_config.TelegramChatId)) return;
+            try
+            {
+                var botToken = _config.TelegramBotToken;
+                var chatId = _config.TelegramChatId;
+                var encodedMsg = Uri.EscapeDataString($"[{_config.TelegramBotName}] {message}");
+                using (var wb = new System.Net.WebClient())
+                {
+                    wb.DownloadString($"https://api.telegram.org/bot{botToken}/sendMessage?chat_id={chatId}&text={encodedMsg}");
+                }
+            }
+            catch (Exception ex) { PrintToServer($"Telegram notification failed: {ex.Message}"); }
+        }
+
+        private void NotifyExternal(string message, string eventType)
+        {
+            // Check if this event type should be notified externally
+            bool shouldNotify = false;
+            if (eventType == "player_join" && (_config.DiscordPlayerJoinLeave || _config.TelegramPlayerJoinLeave)) shouldNotify = true;
+            if (eventType == "player_leave" && (_config.DiscordPlayerJoinLeave || _config.TelegramPlayerJoinLeave)) shouldNotify = true;
+            if (eventType == "death" && (_config.DiscordDeaths || _config.TelegramDeaths)) shouldNotify = true;
+            if (eventType == "raid" && (_config.DiscordRaidAlerts || _config.TelegramRaidAlerts)) shouldNotify = true;
+            if (eventType == "event" && (_config.DiscordEventBroadcasts || _config.TelegramEventBroadcasts)) shouldNotify = true;
+            if (eventType == "moderation" && (_config.DiscordAIModeration || _config.TelegramAIModeration)) shouldNotify = true;
+            if (!shouldNotify) return;
+            // Add AI narration if available
+            if (_config.EnableAIModeration && !string.IsNullOrEmpty(_aiProvider))
+            {
+                var aiNarr = GetAssistantResponse("System", "admin", $"Format this server event for Discord/Telegram: '{message}'. Keep it under 200 characters, dramatic, and clear. No markdown.", null);
+                if (!string.IsNullOrEmpty(aiNarr) && !aiNarr.StartsWith("?")) message = aiNarr;
+            }
+            if (_config.EnableDiscord) SendDiscord(message, eventType);
+            if (_config.EnableTelegram) SendTelegram(message, eventType);
+        }
+
+        private void HandleAutoModerationConfig(BasePlayer player, PlayerSession session, string args)
+
+        private void HandleAdminEvent(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!HasRoleOrHigher(session.Role, "mod")) { PrintToChat(player, "<color=#FF4444>Mod+ required</color>"); return; }
+            var parts = args.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 2) { ShowEventHelp(player); return; }
+            var cmd = parts[0].ToLowerInvariant();
+            if (cmd == "start") { RunAdminEvent(player, parts[1], parts.Length > 2 ? parts[2] : ""); return; }
+            if (cmd == "stop" || cmd == "cancel") { StopAdminEvent(player, parts.Length > 1 ? parts[1] : ""); return; }
+            if (cmd == "list") { ListAdminEvents(player); return; }
+            if (cmd == "join") { JoinEvent(player, session); return; }
+            ShowEventHelp(player);
+        }
+
+        private void ShowEventHelp(BasePlayer player)
+        {
+            PrintToChat(player, "<color=#FFD700>═══ Event Commands ═══</color>");
+            PrintToChat(player, "<color=#AAA>/db event start coinflip <scrap></color> — 50/50 coin toss, winners split the pot");
+            PrintToChat(player, "<color=#AAA>/db event start jackpot <scrap></color> — Random online player wins the prize");
+            PrintToChat(player, "<color=#AAA>/db event start scavenger <seconds></color> — Item hunt, top finders win");
+            PrintToChat(player, "<color=#AAA>/db event start dropparty <item> <count></color> — Drop items at your position");
+            PrintToChat(player, "<color=#AAA>/db event join</color> — Join current active event");
+            PrintToChat(player, "<color=#AAA>/db event list</color> — Show active events");
+            PrintToChat(player, "<color=#AAA>/db event stop <name></color> — Cancel an event (admin)");
+        }
+
+        private void RunAdminEvent(BasePlayer player, string type, string args)
+        {
+            var key = type.ToLowerInvariant();
+            if (_activeAdminEvents.ContainsKey(key)) { PrintToChat(player, $"<color=#FF4444>Event '{type}' is already running.</color>"); return; }
+            var evt = new ActiveAdminEvent { Type = Enum.Parse<AdminEventType>(key, true), StartTime = DateTime.Now, HostName = player.displayName };
+            switch (evt.Type)
+            {
+                case AdminEventType.CoinFlip:
+                    var pot = 500; if (int.TryParse(args, out var p)) pot = p;
+                    evt.DurationSeconds = 30; evt.PrizeJson = pot.ToString();
+                    evt.Participants.Add(player.userID);
+                    break;
+                case AdminEventType.Jackpot:
+                    var amt = 1000; if (int.TryParse(args, out var a)) amt = a;
+                    evt.DurationSeconds = 20; evt.PrizeJson = amt.ToString();
+                    break;
+                case AdminEventType.ScavengerHunt:
+                    var secs = 60; if (int.TryParse(args, out var s)) secs = s;
+                    evt.DurationSeconds = Math.Min(Math.Max(secs, 10), 300); evt.PrizeJson = "scavenger";
+                    break;
+                case AdminEventType.DropParty:
+                    evt.DurationSeconds = 45;
+                    var itemParts = args.Split(' ', 2);
+                    evt.PrizeJson = itemParts.Length > 0 ? itemParts[0] : "scrap";
+                    break;
+            }
+            _activeAdminEvents[key] = evt;
+            var aiNarr = GetAssistantResponse(player.displayName, session.Role, $"Generate a short, exciting event announcement for a Rust server event called '{type}'. Make it sound epic and urgent. Keep it under 50 characters. No markdown.", null);
+            if (string.IsNullOrEmpty(aiNarr) || aiNarr.StartsWith("⚠")) aiNarr = $"⚔ EVENT: {type.ToUpper()} STARTED! Type /db event join";
+            PrintToChat(player, $"<color=#00FF88>{aiNarr}</color>");
+            Server.Broadcast($"<color=#FFD700>⚔ {aiNarr}</color>");
+            LogActivity("event", type, $"Started by {player.displayName}");
+            timer.Once(evt.DurationSeconds + 2f, () => ResolveAdminEvent(key));
+        }
+
+        private void StopAdminEvent(BasePlayer player, string type)
+        {
+            if (string.IsNullOrEmpty(type)) { PrintToChat(player, "<color=#FF4444>Specify event type to stop.</color>"); return; }
+            var key = type.ToLowerInvariant();
+            if (!_activeAdminEvents.ContainsKey(key)) { PrintToChat(player, $"<color=#FF4444>No active event '{type}'.</color>"); return; }
+            _activeAdminEvents.Remove(key);
+            PrintToChat(player, $"<color=#FFD700>Event '{type}' cancelled.</color>");
+            Server.Broadcast($"⚠ Event '{type}' cancelled by admin.");
+        }
+
+        private void ListAdminEvents(BasePlayer player)
+        {
+            if (_activeAdminEvents.Count == 0) { PrintToChat(player, "<color=#888>No active events.</color>"); return; }
+            PrintToChat(player, "<color=#FFD700>═══ Active Events ═══</color>");
+            foreach (var e in _activeAdminEvents)
+            {
+                var elapsed = (DateTime.Now - e.Value.StartTime).Seconds;
+                var remaining = Math.Max(0, e.Value.DurationSeconds - elapsed);
+                PrintToChat(player, $"<color=#00FF88>{e.Key}</color> — {e.Value.HostName} | {remaining}s remaining | {e.Value.Participants.Count} joined");
+            }
+        }
+
+        private void JoinEvent(BasePlayer player, PlayerSession session)
+        {
+            foreach (var e in _activeAdminEvents)
+            {
+                if (e.Value.Participants.Contains(player.userID)) { PrintToChat(player, "<color=#888>Already joined this event.</color>"); return; }
+                if (e.Key == "coinflip" || e.Key == "jackpot") { e.Value.Participants.Add(player.userID); PrintToChat(player, $"<color=#FFD700>Joined {e.Key}! Wait for the result...</color>"); return; }
+            }
+            PrintToChat(player, "<color=#888>No joinable events right now. Type /db event list</color>");
+        }
+
+        private void ResolveAdminEvent(string key)
+        {
+            if (!_activeAdminEvents.TryGetValue(key, out var evt)) return;
+            _activeAdminEvents.Remove(key);
+            string narr;
+            switch (evt.Type)
+            {
+                case AdminEventType.CoinFlip:
+                    var pot = int.TryParse(evt.PrizeJson, out var p) ? p : 500;
+                    if (evt.Participants.Count < 2) { narr = "CoinFlip ended — not enough players. Pot returned."; Server.Broadcast($"<color=#888>{narr}</color>"); }
+                    else
+                    {
+                        var winner = evt.Participants[UnityEngine.Random.Range(0, evt.Participants.Count)];
+                        var wPlayer = BasePlayer.activePlayerList.FirstOrDefault(pl => pl.userID == winner);
+                        var prize = pot / evt.Participants.Count;
+                        if (wPlayer != null) { Server.Command($"scavenger.additem \"{wPlayer.UserIDString}\" scrap {prize}"); }
+                        narr = $"🪙 COINFLIP RESULT: {(winner == BasePlayer.activePlayerList.FirstOrDefault(pl => pl.userID == winner)?.displayName ?? "Player")} WON {prize} scrap!";
+                        var aiNarr = GetAssistantResponse(wPlayer?.displayName ?? "Server", "admin", $"A coinflip event just resolved in Rust. The winner got {prize} scrap out of {evt.Participants.Count} players. Write a short, exciting 1-sentence result announcement.", null);
+                        if (!string.IsNullOrEmpty(aiNarr) && !aiNarr.StartsWith("⚠")) narr = aiNarr;
+                        Server.Broadcast($"<color=#FFD700>{narr}</color>");
+                    }
+                    break;
+                case AdminEventType.Jackpot:
+                    var active = BasePlayer.activePlayerList.ToList();
+                    if (active.Count == 0) { Server.Broadcast("Jackpot: no players online. Cancelled."); return; }
+                    var winnerP = active[UnityEngine.Random.Range(0, active.Count)];
+                    var jackpotAmt = int.TryParse(evt.PrizeJson, out var ja) ? ja : 1000;
+                    Server.Command($"scavenger.additem \"{winnerP.UserIDString}\" scrap {jackpotAmt}");
+                    var jNarr = $"🎰 JACKPOT! {winnerP.displayName} won {jackpotAmt} scrap!";
+                    var jAi = GetAssistantResponse(winnerP.displayName, "admin", $"A jackpot event just resolved in Rust. {winnerP.displayName} won {jackpotAmt} scrap as the sole winner from {active.Count} online players. Write a short, exciting 1-sentence announcement.", null);
+                    if (!string.IsNullOrEmpty(jAi) && !jAi.StartsWith("⚠")) jNarr = jAi;
+                    Server.Broadcast($"<color=#FFD700>{jNarr}</color>");
+                    break;
+                case AdminEventType.ScavengerHunt:
+                    var sNarr = "🏃 SCAVENGER HUNT ENDED! Top finders check your inventory for rewards.";
+                    var sAi = GetAssistantResponse("Server", "admin", "A scavenger hunt event just ended in Rust. Players who found items during the hunt should be rewarded. Write a short, exciting 1-sentence announcement.", null);
+                    if (!string.IsNullOrEmpty(sAi) && !sAi.StartsWith("⚠")) sNarr = sAi;
+                    Server.Broadcast($"<color=#00FF88>{sNarr}</color>");
+                    var topN = Math.Min(3, evt.Participants.Count);
+                    for (int i = 0; i < topN; i++)
+                    {
+                        var pid = evt.Participants[i];
+                        var p2 = BasePlayer.activePlayerList.FirstOrDefault(pl => pl.userID == pid);
+                        if (p2 != null) Server.Command($"scavenger.additem \"{p2.UserIDString}\" scrap {500 * (topN - i)}");
+                    }
+                    break;
+                case AdminEventType.DropParty:
+                    var dropNarr = "📦 DROP PARTY! Items raining down — go pick them up!";
+                    var dAi = GetAssistantResponse("Server", "admin", "A drop party event just started in Rust. Admin dropped items for players to collect. Write a short, exciting 1-sentence announcement.", null);
+                    if (!string.IsNullOrEmpty(dAi) && !dAi.StartsWith("⚠")) dropNarr = dAi;
+                    Server.Broadcast($"<color=#00FF88>{dropNarr}</color>");
+                    var itemName = evt.PrizeJson ?? "scrap";
+                    foreach (var pl in BasePlayer.activePlayerList)
+                    {
+                        var pos = pl.transform.position + new UnityEngine.Vector3(UnityEngine.Random.Range(-3f, 3f), 2f, UnityEngine.Random.Range(-3f, 3f));
+                        Server.Command($"inventory.giveself \"{pl.UserIDString}\" {itemName} 3");
+                    }
+                    break;
+            }
+            LogActivity("event", key, $"Resolved at {DateTime.Now}");
         }
 
         private void HandleSOS(BasePlayer player, PlayerSession session)
@@ -3782,11 +4111,19 @@ namespace Oxide.Plugins
                 if (DateTime.Now < next) { var r = next - DateTime.Now; PrintToChat(player, $"<color=#888>Next reward in:</color> {r.Hours}h {r.Minutes}m"); return; }
             }
             session.LastDailyReward = DateTime.Now;
-            if (_config.DailyRewardScrap > 0)
-                Server.Command("scavenger.additem \"" + player.UserIDString + "\" scrap " + _config.DailyRewardScrap);
+            var isVip = HasRoleOrHigher(session.Role, "vip") || permission.UserHasPermission(player.UserIDString, "rustduckbot.vip");
+            var scrapReward = _config.DailyRewardScrap;
+            var rpReward = _config.DailyRewardRP;
+            if (isVip && _config.VipBonusMultiplier > 1f)
+            {
+                scrapReward = (int)(scrapReward * _config.VipBonusMultiplier);
+                rpReward = (int)(rpReward * _config.VipBonusMultiplier);
+            }
+            if (scrapReward > 0)
+                Server.Command("scavenger.additem \"" + player.UserIDString + "\" scrap " + scrapReward);
             PrintToChat(player, "<color=#FFD700>Daily Reward</color>");
-            PrintToChat(player, $"<color=#00FF88>+{_config.DailyRewardScrap} scrap</color>");
-            if (_config.DailyRewardRP > 0) PrintToChat(player, $"<color=#4DA6FF>+{_config.DailyRewardRP} RP</color>");
+            PrintToChat(player, $"<color=#00FF88>+{scrapReward} scrap</color>" + (isVip && _config.VipBonusMultiplier > 1f ? " <color=#FFD700>(VIP Boost)</color>" : ""));
+            if (rpReward > 0) PrintToChat(player, $"<color=#4DA6FF>+{rpReward} RP</color>");
             PrintToChat(player, "<color=#888>Come back tomorrow!</color>");
         }
 
@@ -4183,21 +4520,25 @@ namespace Oxide.Plugins
             var max = 100;
             if (!string.IsNullOrEmpty(args) && int.TryParse(args, out var m)) max = Math.Min(m, 10000);
             var roll = new System.Random().Next(1, max + 1);
-            PrintToChat(player, $"<color=#FFD700>🎲 DICE:</color> {roll} (1-{max})");
+            var aiNarr = GetAssistantResponse(player, session, $"A player rolled {roll} out of {max} in Rust. Give a short dramatic reaction in 1 sentence.", null);
+            var narr = (!string.IsNullOrEmpty(aiNarr) && !aiNarr.StartsWith("?")) ? aiNarr : $"Rolled {roll} (1-{max})";
+            PrintToChat(player, $"<color=#FFD700>DICE:</color> {narr}");
         }
 
         private void FlipCoin(BasePlayer player, PlayerSession session)
         {
             var result = new System.Random().Next(2) == 0 ? "HEADS" : "TAILS";
-            PrintToChat(player, $"<color=#FFD700>🪙 COIN:</color> {result}");
+            var aiNarr = GetAssistantResponse(player, session, $"A coin flip in Rust came up {result}. Give a short dramatic reaction in 1 sentence.", null);
+            var narr = (!string.IsNullOrEmpty(aiNarr) && !aiNarr.StartsWith("?")) ? aiNarr : result;
+            PrintToChat(player, $"<color=#FFD700>COIN:</color> {narr}");
         }
 
         private void Magic8Ball(BasePlayer player, PlayerSession session, string question)
         {
             if (string.IsNullOrWhiteSpace(question)) { PrintToChat(player, "Usage: /db 8ball <question>"); return; }
-            var responses = new[] { "Yes", "No", "Maybe", "Definitely", "Absolutely not", "Ask again later", "Very likely", "Unlikely", "Signs point to yes", "My sources say no", "Without a doubt", "Don't count on it" };
-            var answer = responses[new System.Random().Next(responses.Length)];
-            PrintToChat(player, $"<color=#FFD700>🎱 8BALL:</color> {answer}");
+            var aiAnswer = GetAssistantResponse(player, session, $"Player asked: '{question}'. You are a magic 8-ball. Give a mysterious, short answer in 1-3 words.", null);
+            var answer = (!string.IsNullOrEmpty(aiAnswer) && !aiAnswer.StartsWith("?")) ? aiAnswer.Trim() : "Ask again later";
+            PrintToChat(player, $"<color=#FFD700>8BALL:</color> {answer}");
         }
 
         private void PlayRPS(BasePlayer player, PlayerSession session, string choice)
@@ -4211,40 +4552,259 @@ namespace Oxide.Plugins
             var botChoice = new System.Random().Next(3);
 
             var result = playerChoice == botChoice ? "DRAW" : (playerChoice == 0 && botChoice == 2) || (playerChoice == 1 && botChoice == 0) || (playerChoice == 2 && botChoice == 1) ? "YOU WIN" : "YOU LOSE";
-            var resultColor = result == "YOU WIN" ? "#00FF00" : result == "YOU LOSE" ? "#FF4444" : "#FFD700";
-
-            PrintToChat(player, $"<color=#FFD700>✊👋✌️ RPS:</color>");
-            PrintToChat(player, $"You: {choice.ToUpper()} | Bot: {choices[botChoice].ToUpper()}");
-            PrintToChat(player, $"Result: <color={resultColor}>{result}</color>");
+            var aiNarr = GetAssistantResponse(player, session, $"RPS: Player chose {choice}, Bot chose {choices[botChoice]}. Result: {result}. Give a short dramatic 1-sentence narration.", null);
+            var narr = (!string.IsNullOrEmpty(aiNarr) && !aiNarr.StartsWith("?")) ? aiNarr : $"You: {choice.ToUpper()} | Bot: {choices[botChoice].ToUpper()} -- {result}";
+            PrintToChat(player, $"<color=#FFD700>RPS:</color> {narr}");
         }
 
         private void ShowQuote(BasePlayer player, PlayerSession session)
         {
             var response = GetAssistantResponse(player, session, "Give one short gritty quote for a Rust player. Keep it in-character and under 20 words.", false);
-            PrintToChat(player, $"<color=#FFD700>💬 QUOTE:</color> {response}");
+            PrintToChat(player, $"<color=#FFD700>QUOTE:</color> {response}");
         }
 
         private void TellJoke(BasePlayer player, PlayerSession session)
         {
             var response = GetAssistantResponse(player, session, "Tell one short Rust-themed joke. Keep it clean and concise.", false);
-            PrintToChat(player, $"<color=#FFD700>😂 JOKE:</color> {response}");
+            PrintToChat(player, $"<color=#FFD700>JOKE:</color> {response}");
         }
 
         private void ShowFortune(BasePlayer player, PlayerSession session)
         {
             var response = GetAssistantResponse(player, session, "Give one short fortune for a Rust player. Keep it dramatic and under 20 words.", false);
-            PrintToChat(player, $"<color=#FFD700>🔮 FORTUNE:</color> {response}");
+            PrintToChat(player, $"<color=#FFD700>FORTUNE:</color> {response}");
+        }
+
+        // ── Number Guessing Game ─────────────────────────────────────────────
+        private class GuessGame
+        {
+            public int Target;
+            public int MaxGuesses;
+            public int GuessesLeft;
+            public int PrizePool;
+            public int EntryFee;
+            public bool Active;
+            public DateTime Deadline;
+        }
+
+        private readonly Dictionary<string, GuessGame> _guessGames = new Dictionary<string, GuessGame>();
+
+        private void HandleGuess(BasePlayer player, PlayerSession session, string args)
+        {
+            var parts = args.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0) { ShowGuessHelp(player); return; }
+            var cmd = parts[0].ToLowerInvariant();
+            if (cmd == "join")
+            {
+                var fee = 100;
+                if (parts.Length > 1 && int.TryParse(parts[1], out var f)) fee = Math.Max(f, 10);
+                var playerId = player.UserIDString;
+                if (_guessGames.ContainsKey(playerId) && _guessGames[playerId].Active) { PrintToChat(player, "<color=#888>Already in a guess game.</color>"); return; }
+                var gg = new GuessGame
+                {
+                    Target = UnityEngine.Random.Range(1, 101),
+                    MaxGuesses = 7,
+                    GuessesLeft = 7,
+                    PrizePool = fee,
+                    EntryFee = fee,
+                    Active = true,
+                    Deadline = DateTime.Now.AddMinutes(2)
+                };
+                _guessGames[playerId] = gg;
+                PrintToChat(player, $"<color=#FFD700>🎯 GUESS GAME STARTED!</color> Entry fee: {fee} scrap. Guess a number 1-100, max {gg.MaxGuesses} guesses.");
+                PrintToChat(player, $"Prize pool currently: <color=#00FF88>{gg.PrizePool} scrap</color>. Use /db guess <number>");
+                return;
+            }
+            if (_guessGames.TryGetValue(player.UserIDString, out var game))
+            {
+                if (!game.Active) { PrintToChat(player, "<color=#888>No active game. Use /db guess join <bet></color>"); return; }
+                if (game.GuessesLeft <= 0) { PrintToChat(player, "<color=#888>Out of guesses. Game over.</color>"); game.Active = false; return; }
+                if (!int.TryParse(cmd, out var guess) || guess < 1 || guess > 100) { PrintToChat(player, "Guess a number 1-100"); return; }
+                game.GuessesLeft--;
+                if (guess == game.Target)
+                {
+                    game.Active = false;
+                    var prize = game.PrizePool;
+                    Server.Command($"scavenger.additem \"{player.UserIDString}\" scrap {prize}");
+                    var aiWin = GetAssistantResponse(player.displayName, session.Role, $"A player just won a number guessing game in Rust! They guessed {guess} which was the correct number, and won {prize} scrap after {7 - game.GuessesLeft} tries. Write a short, exciting 1-sentence announcement.", null);
+                    var msg = !string.IsNullOrEmpty(aiWin) && !aiWin.StartsWith("⚠") ? aiWin : $"🎯 CORRECT! {player.displayName} guessed {guess} and won <color=#00FF88>{prize} scrap</color>!";
+                    Server.Broadcast($"<color=#FFD700>{msg}</color>");
+                }
+                else if (game.GuessesLeft == 0)
+                {
+                    game.Active = false;
+                    var aiLose = GetAssistantResponse(player.displayName, session.Role, $"A player just lost a number guessing game in Rust. The correct number was {game.Target}. Write a short, funny 1-sentence result.", null);
+                    var msg = !string.IsNullOrEmpty(aiLose) && !aiLose.StartsWith("⚠") ? aiLose : $"💀 Out of guesses! The number was <color=#FF4444>{game.Target}</color>. Better luck next time!";
+                    PrintToChat(player, $"<color=#888>{msg}</color>");
+                }
+                else
+                {
+                    var hint = guess < game.Target ? "higher" : "lower";
+                    var emoji = game.GuessesLeft <= 2 ? "🔴" : "🟡";
+                    PrintToChat(player, $"<color=#FFD700>Guess {guess} — {hint}!</color> {emoji} {game.GuessesLeft} guesses left. Pool: <color=#00FF88>{game.PrizePool}</color>");
+                }
+            }
+            else { ShowGuessHelp(player); }
+        }
+
+        private void ShowGuessHelp(BasePlayer player)
+        {
+            PrintToChat(player, "<color=#FFD700>═══ Guess Game ═══</color>");
+            PrintToChat(player, "<color=#AAA>/db guess join <bet></color> — Join with scrap bet (min 10)");
+            PrintToChat(player, "<color=#AAA>/db guess <number></color> — Guess 1-100");
+            PrintToChat(player, "<color=#888>7 guesses max, prize pool grows with entry fee.</color>");
+        }
+
+        // ── Lucky Block (VIP+) ──────────────────────────────────────────────
+        private class LuckyBlock
+        {
+            public ulong OwnerId;
+            public string ItemName;
+            public int ItemCount;
+            public int PriceScrap;
+            public DateTime ListedAt;
+        }
+
+        private readonly List<LuckyBlock> _shopListings = new List<LuckyBlock>();
+
+        private void HandleShop(BasePlayer player, PlayerSession session, string args)
+        {
+            var parts = args.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0) { ShowShopHelp(player); return; }
+            var cmd = parts[0].ToLowerInvariant();
+            if (cmd == "list") { ListShop(player); return; }
+            if (cmd == "add" && parts.Length >= 3)
+            { AddShopListing(player, session, parts[1], parts[2]); return; }
+            if (cmd == "buy" && parts.Length >= 2)
+            { BuyShopItem(player, session, string.Join(" ", parts.Skip(1))); return; }
+            if (cmd == "remove" && parts.Length >= 2)
+            { RemoveShopListing(player, session, string.Join(" ", parts.Skip(1))); return; }
+            if (cmd == "exchange" && parts.Length >= 3)
+            { ExchangeScrapRP(player, session, parts[1], parts[2]); return; }
+            ShowShopHelp(player);
+        }
+
+        private void ShowShopHelp(BasePlayer player)
+        {
+            PrintToChat(player, "<color=#FFD700>═══ Shop ═══</color>");
+            PrintToChat(player, "<color=#AAA>/db shop list</color> — Browse listings");
+            PrintToChat(player, "<color=#AAA>/db shop add <item> <scrap_price></color> — List an item");
+            PrintToChat(player, "<color=#AAA>/db shop buy <item_name></color> — Buy from a listing");
+            PrintToChat(player, "<color=#AAA>/db shop remove <item></color> — Remove your listing");
+            PrintToChat(player, "<color=#AAA>/db shop exchange <scrap|rp> <amount></color> — Exchange scrap/RP");
+        }
+
+        private void ListShop(BasePlayer player)
+        {
+            if (_shopListings.Count == 0) { PrintToChat(player, "<color=#888>No active listings. Be the first!</color>"); return; }
+            PrintToChat(player, $"<color=#FFD700>═══ Shop ({_shopListings.Count} listings) ═══</color>");
+            foreach (var listing in _shopListings.OrderByDescending(l => l.ListedAt).Take(10))
+            {
+                var owner = BasePlayer.activePlayerList.FirstOrDefault(p => p.userID == listing.OwnerId);
+                PrintToChat(player, $"<color=#00FF88>{listing.ItemName}</color> x{listing.ItemCount} — {listing.PriceScrap} scrap (seller: {owner?.displayName ?? "offline"})");
+            }
+            if (_shopListings.Count > 10) PrintToChat(player, $"<color=#888>+{_shopListings.Count - 10} more — /db shop list all</color>");
+        }
+
+        private void AddShopListing(BasePlayer player, PlayerSession session, string itemName, string priceStr)
+        {
+            if (!int.TryParse(priceStr, out var price) || price <= 0) { PrintToChat(player, "Invalid price."); return; }
+            var playerListings = _shopListings.Count(l => l.OwnerId == player.userID);
+            if (playerListings >= _config.ShopMaxListingsPerPlayer) { PrintToChat(player, $"Max {_config.ShopMaxListingsPerPlayer} listings per player."); return; }
+            var existing = _shopListings.FirstOrDefault(l => l.OwnerId == player.userID && l.ItemName.Equals(itemName, StringComparison.OrdinalIgnoreCase));
+            if (existing != null) { PrintToChat(player, $"You already have {itemName} listed for {existing.PriceScrap} scrap. Remove it first."); return; }
+            var listing = new LuckyBlock { OwnerId = player.userID, ItemName = itemName, ItemCount = 1, PriceScrap = price, ListedAt = DateTime.Now };
+            _shopListings.Add(listing);
+            PrintToChat(player, $"<color=#00FF88>Listed {itemName} for {price} scrap.</color>");
+            LogActivity("economy", "shop_add", $"{itemName}@{price} by {player.displayName}", player.UserIDString, player.displayName);
+        }
+
+        private void BuyShopItem(BasePlayer player, PlayerSession session, string itemName)
+        {
+            var listing = _shopListings.FirstOrDefault(l => l.ItemName.Equals(itemName, StringComparison.OrdinalIgnoreCase));
+            if (listing == null) { PrintToChat(player, $"No listing found for '{itemName}'."); return; }
+            if (listing.OwnerId == player.userID) { PrintToChat(player, "You can't buy your own listing."); return; }
+            var buyerSession = GetOrCreateSession(player);
+            if (buyerSession.TotalScrap < listing.PriceScrap) { PrintToChat(player, $"Not enough scrap. Need {listing.PriceScrap}, have {buyerSession.TotalScrap}."); return; }
+            var seller = BasePlayer.activePlayerList.FirstOrDefault(p => p.userID == listing.OwnerId);
+            buyerSession.TotalScrap -= listing.PriceScrap;
+            var sellerSession = seller != null ? GetOrCreateSession(seller) : null;
+            if (sellerSession != null) sellerSession.TotalScrap += listing.PriceScrap;
+            Server.Command($"scavenger.additem \"{player.UserIDString}\" {listing.ItemName} {listing.ItemCount}");
+            _shopListings.Remove(listing);
+            PrintToChat(player, $"<color=#00FF88>Purchased {listing.ItemName} for {listing.PriceScrap} scrap!</color>");
+            if (seller != null) PrintToChat(seller, $"<color=#FFD700>{player.displayName}</color> bought your <color=#00FF88>{listing.ItemName}</color> for {listing.PriceScrap} scrap!");
+            LogActivity("economy", "shop_buy", $"{listing.ItemName} sold for {listing.PriceScrap} scrap to {player.displayName}", player.UserIDString, player.displayName);
+        }
+
+        private void RemoveShopListing(BasePlayer player, PlayerSession session, string itemName)
+        {
+            var listing = _shopListings.FirstOrDefault(l => l.OwnerId == player.userID && l.ItemName.Equals(itemName, StringComparison.OrdinalIgnoreCase));
+            if (listing == null) { PrintToChat(player, $"No listing found for '{itemName}' under your name."); return; }
+            _shopListings.Remove(listing);
+            PrintToChat(player, $"Removed listing: {itemName}.");
+        }
+
+        private void ExchangeScrapRP(BasePlayer player, PlayerSession session, string type, string amountStr)
+        {
+            if (!int.TryParse(amountStr, out var amount) || amount <= 0) { PrintToChat(player, "Invalid amount."); return; }
+            var isScrapToRP = type.ToLowerInvariant() == "scrap";
+            if (!isScrapToRP && type.ToLowerInvariant() != "rp") { PrintToChat(player, "Use: /db shop exchange scrap <amount> or /db shop exchange rp <amount>"); return; }
+            var rate = _config.ShopExchangeRateScrapPerRP;
+            if (isScrapToRP)
+            {
+                if (session.TotalScrap < amount) { PrintToChat(player, $"Not enough scrap. Have {session.TotalScrap}."); return; }
+                var rp = amount / rate;
+                if (rp < 1) { PrintToChat(player, $"Minimum exchange is {rate} scrap for 1 RP."); return; }
+                session.TotalScrap -= amount;
+                PrintToChat(player, $"<color=#FFD700>Exchanged {amount} scrap → {rp} RP.</color>");
+                LogActivity("economy", "exchange", $"scrap→rp: {amount} scrap, {rp} RP to {player.displayName}", player.UserIDString, player.displayName);
+            }
+            else
+            {
+                var scrapNeeded = amount * rate;
+                if (session.TotalScrap < scrapNeeded) { PrintToChat(player, $"Not enough scrap. Need {scrapNeeded}, have {session.TotalScrap}."); return; }
+                session.TotalScrap -= scrapNeeded;
+                PrintToChat(player, $"<color=#FFD700>Exchanged {scrapNeeded} scrap for {amount} RP.</color>");
+                LogActivity("economy", "exchange", $"rp→scrap: {scrapNeeded} scrap, {amount} RP to {player.displayName}", player.UserIDString, player.displayName);
+            }
+        }
+
+        // ── Lucky Block (VIP+) ──────────────────────────────────────────────
+        private void HandleLucky(BasePlayer player, PlayerSession session)
+        {
+            if (!HasRoleOrHigher(session.Role, "vip") && !permission.UserHasPermission(player.UserIDString, "rustduckbot.vip"))
+            { PrintToChat(player, "<color=#FFD700>Lucky Block</color> — VIP only perk."); return; }
+            var cost = 200;
+            PrintToChat(player, $"<color=#FFD700>LUCKY BLOCK</color> — Spinning...");
+            var roll = UnityEngine.Random.Range(1, 101);
+            string reward; int amount;
+            if (roll <= 5)
+            { reward = "explosive.timed"; amount = 3; }
+            else if (roll <= 15)
+            { reward = "metal.plate.torso"; amount = 1; }
+            else if (roll <= 35)
+            { reward = "scrap"; amount = 800; }
+            else if (roll <= 60)
+            { reward = "scrap"; amount = 400; }
+            else
+            { reward = "scrap"; amount = 150; }
+            Server.Command($"scavenger.additem \"{player.UserIDString}\" {reward} {amount}");
+            var tier = roll <= 5 ? "EPIC" : roll <= 15 ? "RARE" : roll <= 35 ? "UNCOMMON" : "COMMON";
+            var aiNarr = GetAssistantResponse(player.displayName, session.Role, $"A player just opened a lucky block in Rust and got {amount}x {reward}. The rarity tier is {tier}. Write a short, exciting 1-sentence announcement.", null);
+            var msg = !string.IsNullOrEmpty(aiNarr) && !aiNarr.StartsWith("?") ? aiNarr : $"LUCKY BLOCK: {tier} -- {amount}x {reward}!";
+            Server.Broadcast($"<color=#FFD700>{msg}</color>");
         }
 
         private void PlaySlots(BasePlayer player, PlayerSession session)
         {
-            var emojis = new[] { "🔫", "💰", "⚙️", "🧨", "🔪", "💎", "💀" };
+            var icons = new[] { "GUN", "COIN", "GEAR", "EXPLOSIVE", "KNIFE", "GEM", "SKULL" };
             var r = new System.Random();
-            var spin = new[] { emojis[r.Next(emojis.Length)], emojis[r.Next(emojis.Length)], emojis[r.Next(emojis.Length)] };
-            var result = spin[0] == spin[1] && spin[1] == spin[2] ? "<color=#00FF00>JACKPOT!</color>" : spin[0] == spin[1] || spin[1] == spin[2] || spin[0] == spin[2] ? "<color=#FFD700>PAIR!</color>" : "<color=#888>Try again</color>";
-            PrintToChat(player, $"<color=#FFD700>🎰 SLOTS:</color>");
-            PrintToChat(player, $"  [{spin[0]}] [{spin[1]}] [{spin[2]}]");
-            PrintToChat(player, $"  {result}");
+            var spin = new[] { icons[r.Next(icons.Length)], icons[r.Next(icons.Length)], icons[r.Next(icons.Length)] };
+            var outcome = spin[0] == spin[1] && spin[1] == spin[2] ? "TRIPLE JACKPOT" : spin[0] == spin[1] || spin[1] == spin[2] || spin[0] == spin[2] ? "PAIR" : "NO MATCH";
+            var aiNarr = GetAssistantResponse(player, session, $"Slots: [{spin[0]}] [{spin[1]}] [{spin[2]}]. Result: {outcome}. Give a short dramatic 1-sentence narration.", null);
+            var narr = (!string.IsNullOrEmpty(aiNarr) && !aiNarr.StartsWith("?")) ? aiNarr : $"[{spin[0]}] [{spin[1]}] [{spin[2]}] -- {outcome}";
+            PrintToChat(player, $"<color=#FFD700>SLOTS:</color> {narr}");
         }
 
         private void PlaceBet(BasePlayer player, PlayerSession session, string args)
@@ -4973,6 +5533,22 @@ namespace Oxide.Plugins
             var players = BasePlayer.activePlayerList;
             var playerList = players.Select(p => new { id = p.UserIDString, name = p.displayName, ping = 0, role = GetOrCreateSession(p).Role, connectedAt = GetOrCreateSession(p).SessionStart.ToString("o"), position = GetGridCoord(p.transform.position), nearestMonument = GetNearestMonument(p.transform.position) }).ToList();
 
+            var onlineNow = players.Select(p => p.userID).ToHashSet();
+            foreach (var p in players)
+            {
+                if (!_knownOnlinePlayers.Contains(p.userID))
+                    NotifyExternal($"{p.displayName} joined the server", "player_join");
+            }
+            foreach (var prevId in _knownOnlinePlayers)
+            {
+                if (!onlineNow.Contains(prevId))
+                {
+                    var name = players.FirstOrDefault(pl => pl.userID == prevId)?.displayName ?? prevId.ToString();
+                    NotifyExternal($"{name} left the server", "player_leave");
+                }
+            }
+            _knownOnlinePlayers = onlineNow;
+
             _mcpClient?.SendMessage(new
             {
                 type = "heartbeat",
@@ -5558,8 +6134,11 @@ namespace Oxide.Plugins
             int mi = Array.FindLastIndex(milestones, m => attackerSession.CurrentKillstreak >= m);
             if (mi >= 0)
             {
-                attackerSession.TotalScrap += rewards[mi];
-                PrintToChat(attacker, $"<color=#FFD700>⚔ Killstreak {attackerSession.CurrentKillstreak}!</color> Earned <color=#FF9900>+{rewards[mi]} scrap</color>");
+                var isVip = HasRoleOrHigher(attackerSession.Role, "vip") || permission.UserHasPermission(attacker.UserIDString, "rustduckbot.vip");
+                var reward = rewards[mi];
+                if (isVip && _config.VipBonusMultiplier > 1f) reward = (int)(reward * _config.VipBonusMultiplier);
+                attackerSession.TotalScrap += reward;
+                PrintToChat(attacker, $"<color=#FFD700>⚔ Killstreak {attackerSession.CurrentKillstreak}!</color> Earned <color=#FF9900>+{reward} scrap</color>" + (isVip && _config.VipBonusMultiplier > 1f ? " <color=#FFD700>(VIP Boost)</color>" : ""));
                 _ = _agentBridge?.SendToAgentAsync(new { type = "killstreak_reward", playerId = attacker.UserIDString, playerName = attacker.displayName, streak = attackerSession.CurrentKillstreak, reward = rewards[mi], milestone = milestones[mi], timestamp = DateTime.UtcNow.ToString("O") });
                 LogActivity("pvp", "Killstreak", $"{attacker.displayName} reached streak {attackerSession.CurrentKillstreak} (milestone {milestones[mi]})", attacker.UserIDString, attacker.displayName);
             }
@@ -6298,6 +6877,8 @@ namespace Oxide.Plugins
         private readonly string _openAiBase;
         private readonly string _openAiModel;
         private readonly string _systemPrompt;
+        private readonly string _miniMaxKey;
+        private readonly string _miniMaxModel;
 
         public LocalAIBridge(RustDuckBot.ConfigData cfg)
         {
@@ -6308,6 +6889,8 @@ namespace Oxide.Plugins
             _openAiKey = cfg.OpenAIApiKey;
             _openAiBase = cfg.OpenAIBaseUrl.TrimEnd('/');
             _openAiModel = cfg.OpenAIModel;
+            _miniMaxKey = cfg.MiniMaxApiKey;
+            _miniMaxModel = cfg.MiniMaxModel;
             _systemPrompt = BuildSystemPrompt(cfg);
         }
 
@@ -6321,6 +6904,7 @@ namespace Oxide.Plugins
                     case "openai": return OAIPrompt(message, history, _openAiKey, _openAiBase, _openAiModel);
                     case "anthropic": return AnthropicPrompt(message, history);
                     case "openrouter": return OAIPrompt(message, history, _openAiKey, "https://openrouter.ai/api/v1", _openAiModel);
+                    case "minimax": return MiniMaxPrompt(message, history);
                     default: return null; // Fall back to DuckBotAgentBridge
                 }
             }
@@ -6396,6 +6980,27 @@ namespace Oxide.Plugins
 
                 var content = ExtractAnthropicContent(raw);
                 return content ?? "No response from Claude.";
+            }
+        }
+
+        // ── MiniMax ──────────────────────────────────────────────────────────
+
+        private string MiniMaxPrompt(string message, List<RustDuckBot.ChatEntry> history)
+        {
+            if (string.IsNullOrEmpty(_miniMaxKey))
+                return "⚠ MiniMax API key not configured. Set MiniMaxApiKey in config.";
+
+            using (var wb = new System.Net.WebClient())
+            {
+                wb.Headers["Content-Type"] = "application/json";
+                wb.Headers["Authorization"] = $"Bearer {_miniMaxKey}";
+
+                var url = ChatCompletionsUrl("https://api.minimax.chat/v1");
+                var raw = wb.UploadString(url, "POST",
+                    SimpleJson.Serialize(new { model = _miniMaxModel, messages = BuildMessages(message, history, _systemPrompt), max_tokens = 800 }));
+
+                var content = ExtractOpenAIContent(raw);
+                return content ?? "No response from MiniMax.";
             }
         }
 

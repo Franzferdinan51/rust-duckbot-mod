@@ -20,11 +20,15 @@ RustDuckBot turns Rust's Computer Station into an interactive AI terminal. Every
 
 - **✅ Built-in kit grants** — `/db kit <name>` grants items directly without a separate Kits plugin. Kits: starter, pvp, building, mini, scrap, admin. Each has permission tiers, cooldowns, and daily-use limits.
 - **✅ Hooks restored** — game hooks re-enabled after fixing Oxide.Compiler incompatibilities (`CCTVRCamera`, `ComputerStation`, `DamageType`, `BaseEntity.IsActive()`, `BasePlayer.IsConnected`, `BaseEntity.OwnerID`, etc.). CCTV, security, raid/decay alerts, and player tracking work again.
-- **🤖 5 AI backends** — DuckBot MCP, LM Studio (local), OpenAI, Anthropic/Claude, OpenRouter
+- **🤖 6 AI backends** — DuckBot MCP, LM Studio (local), OpenAI, Anthropic/Claude, OpenRouter, MiniMax
+- **💬 Discord + Telegram notifications** — join/leave, deaths, raids, event broadcasts, AI moderation alerts (AI-narrated before posting)
+- **🛒 Player-to-player shop** — list items for scrap, buy/sell, scrap↔RP exchange
+- **📊 Stats + leaderboard** — kills, activity, events won tracked via MCP activity log
 - **🖥 Computer Station UI** — CUI overlay for players at Computer Stations
 - **🛰 Full teleport system** — 13 teleport commands including tpr/tpa request flow, sethome (5 per player), town, bandit, back, random TP, and coordinates
 - **🗺 AI map/world tools** — `/db mapintel`, `/db route <target>`, `/db brief`, `/db wipeprep`, `/db eventintel`, `/db teamintel` use live grid, monument, marker, and server context.
-- **🛡 Moderation workflow** — `/db report`, `/db reports`, `/db modreview` with AI review support and optional auto-kick/auto-ban thresholds.
+- **🛡 Moderation workflow** — `/db report`, `/db reports`, `/db modreview` with AI review support and optional auto-kick/auto-ban thresholds (now enabled by default).
+- **🎰 VIP Economy + Admin Events** — VIP bonus multiplier (1.5x) on daily/killstreak rewards; `/db event` (mod+) for coinflip, jackpot, scavenger, dropparty with AI narration; `/db guess` number game; `/db lucky` (VIP+) lucky blocks with tiered loot.
 - **🔐 Enhanced MCP/RCON** — read-only RCON query/history, command catalog, bridge status, server info, player positions, monument info, map overview, route advice, moderation context.
 
 ---
@@ -106,6 +110,7 @@ If LM Studio has API-key mode enabled, set `LMStudioApiKey`. Otherwise leave it 
 | `openai` | `OpenAIApiKey` + `OpenAIBaseUrl` | Any OpenAI-compatible provider |
 | `anthropic` | `OpenAIApiKey` as `x-api-key` | Claude via Anthropic API |
 | `openrouter` | `OpenAIApiKey` | 100+ models, free tier available |
+| `minimax` | `MiniMaxApiKey` + `MiniMaxModel` | MiniMax Text API, OpenAI-compatible format |
 
 ### 🧠 MCP Agent Powers
 
@@ -119,7 +124,8 @@ Any interchangeable MCP-capable agent can use the tool surface. Regular player f
 | Security | `rust_list_alerts`, `rust_ack_alert`, `rust_security_scan`, `rust_lockdown` |
 | Kits | `rust_list_kits`, `rust_give_kit` |
 | Fun/Guidance | `rust_roll_dice`, `rust_8ball`, `rust_player_tip` |
-| Economy | `rust_market_listings` *(prepared/stubbed until live market data is populated)* |
+| Economy/Events | `rust_economy_status`, `rust_vip_bonus_info`, `rust_lucky_block_prizes`, `rust_guess_game_status`, `rust_admin_event_create`, `rust_admin_event_list`, `rust_admin_event_cancel` |
+| **Player Data** | `rust_get_player_stats`, `rust_leaderboard`, `rust_shop_listings` |
 | Map/World | `rust_map_overview`, `rust_get_monument_info`, `rust_route_advice`, `rust_monument_advice_context`, `rust_list_map_markers`, `rust_map_marker_catalog`, `rust_add_map_marker` |
 | Moderation | `rust_chat_moderation_context`, `rust_kick_player`, `rust_ban_player` |
 | Admin/RCON | `rust_rcon_command_catalog`, `rust_rcon_query`, `rust_rcon_history`, `rust_admin_command`, `rust_rcon_command` |
@@ -138,6 +144,11 @@ Any interchangeable MCP-capable agent can use the tool surface. Regular player f
 | **Teleport** | `tpr <player>`, `tpa <player>`, `tpc`/`accept`, `tpd`/`deny`, `home [name]`, `sethome [name]`, `removehome [name]`, `town`, `bandit`, `back`, `rtele`, `pos`/`coords` |
 | **Messaging** | `msg <player> <message>`, `ignore <player>`, `unignore <player>`, `afk`, `team <msg>`, `broadcast`/`bc` |
 | **Moderation** | `report <player> <reason>`, `reports`, `modreview <player>`, `slay <player>`, `respawn <player>`, `notes <player> [view/add/remove/clear]`, `adminmsg <player> <msg>`, `mutelist`, `kick`, `ban`, `unban`, `freeze`, `heal`, `give` |
+| **Server Control** | `pve on|off` (admin), `lockdown start|stop|status`, `admin <rcon_cmd>` |
+| **Admin Tools** | `broadcast <msg>` (admin), `wipekits` (admin), `backup` (admin), `settings` |
+| **Events/Games** | `event start coinflip|jackpot|scavenger|dropparty [args]` (mod+), `event list|join`, `guess join <bet>`, `guess <number>`, `lucky` (VIP+) |
+| **Economy/Shop** | `daily`, `shop list|add|buy|remove|exchange` (scrap↔RP), `exchange scrap|rp <amount>` |
+| **AI Games** | `roll <max>`, `flip`, `8ball <question>`, `rps rock|paper|scissors`, `joke`, `fortune`, `slots` |
 | **Intel / Map** | `players`, `player <name>`, `track <name>`, `history`, `leaderboard`, `stats`, `radar`, `loot`, `map`, `grid`, `mapintel`, `route <target>`, `markers`, `mark`, `near`, `deaths`, `kills`, `kd`, `death [player]`, `killer [player]`, `weapon <name>`, `compare <item1> <item2>` |
 | **AI World** | `ask <msg>`, `brief`, `wipeprep`, `eventintel`, `teamintel`, `chat` (opens CUI panel), `history` |
 
@@ -346,14 +357,28 @@ Full config is written to `oxide/config/RustDuckBot.json` on first load.
 ### AI Settings
 | Field | Default | Description |
 |---|---|---|
-| `AgentProvider` | `duckbot` | `duckbot` \| `lmstudio` \| `openai` \| `anthropic` \| `openrouter` |
+| `AgentProvider` | `duckbot` | `duckbot` \| `lmstudio` \| `openai` \| `anthropic` \| `openrouter` \| `minimax` |
 | `AgentConfig` | `http://localhost:18797` | URL for DuckBot MCP agent |
 | `LMStudioUrl` | `http://127.0.0.1:1234` | LM Studio HTTP URL; `/v1` optional |
 | `LMStudioModel` | `local-model` | Model name |
 | `LMStudioApiKey` | _(empty)_ | Optional Bearer token for LM Studio |
-| `OpenAIApiKey` | _(empty)_ | API key for OpenAI / Anthropic / OpenRouter |
+| `OpenAIApiKey` | _(empty)_ | API key for OpenAI / Anthropic / OpenRouter / MiniMax |
 | `OpenAIBaseUrl` | `https://api.openai.com/v1` | OpenAI-compatible base URL |
 | `OpenAIModel` | `gpt-4o-mini` | Model name |
+| `MiniMaxApiKey` | _(empty)_ | MiniMax API key |
+| `MiniMaxModel` | `MiniMax-Text-01` | MiniMax model name |
+| `EnableDiscord` | `false` | Enable Discord webhook notifications |
+| `DiscordWebhookUrl` | _(empty)_ | Discord webhook URL |
+| `DiscordBotName` | `RustDuckBot` | Name shown in Discord messages |
+| `DiscordPlayerJoinLeave` | `true` | Notify join/leave events |
+| `DiscordDeaths` | `true` | Notify player deaths |
+| `DiscordRaidAlerts` | `false` | Notify raid events |
+| `DiscordEventBroadcasts` | `true` | Notify server events |
+| `EnableTelegram` | `false` | Enable Telegram bot notifications |
+| `TelegramBotToken` | _(empty)_ | Telegram bot API token |
+| `TelegramChatId` | _(empty)_ | Telegram chat/channel ID |
+| `ShopItemListingFee` | `50` | Scrap cost to list an item in `/db shop` |
+| `ShopExchangeRateScrapPerRP` | `10` | Scrap per 1 RP in exchange |
 
 ### Teleport Settings
 | Field | Default | Description |
@@ -376,7 +401,7 @@ Full config is written to `oxide/config/RustDuckBot.json` on first load.
 | `EnableReportSystem` | `true` | Enable `/db report` command |
 | `ReportCooldownMinutes` | `5` | Minutes between reports |
 | `EnableAIModeration` | `true` | Enable `/db modreview` AI moderation analysis |
-| `EnableAutoModeration` | `false` | Allow automatic kick/ban actions from repeated suspicious reports |
+| `EnableAutoModeration` | `true` | Allow automatic kick/ban actions from repeated suspicious reports |
 | `AutoModerationReportThreshold` | `3` | Minimum repeated reports before auto-moderation evaluates |
 | `AutoModerationKickThreshold` | `4` | Repeated report count that can trigger auto-kick |
 | `AutoModerationBanThreshold` | `6` | Repeated report count that can trigger auto-ban when severity is high |
@@ -393,6 +418,7 @@ Full config is written to `oxide/config/RustDuckBot.json` on first load.
 | `DailyRewardScrap` | `100` | Scrap per daily reward |
 | `DailyRewardRP` | `20` | RP per daily reward |
 | `PlaytimeBonusMinutes` | `60` | Minutes played to unlock daily |
+| `VipBonusMultiplier` | `1.5` | VIP multiplier on daily/killstreak scrap and RP |
 
 ### Notifications & Building
 | Field | Default | Description |
