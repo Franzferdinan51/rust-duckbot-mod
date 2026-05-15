@@ -1714,62 +1714,6 @@ namespace Oxide.Plugins
             timer.Once(1.9f, () => PrintToChat(player, "\n<color=#FFD700>Use /db help 2 or /db help 3 to see all pages.</color>"));
         }
 
-            if (HasRoleOrHigher(session.Role, "vip"))
-            {
-                PrintToChat(player, "\n<color=#00FF00>━━━ VIP COMMANDS ━━━</color>");
-                PrintToChat(player, "<color=#888>/db door <id> lock/unlock</color> — Control doors");
-                PrintToChat(player, "<color=#888>/db light <id> on/off</color> — Control lights");
-                PrintToChat(player, "<color=#888>/db time</color> — Game time & weather");
-                PrintToChat(player, "<color=#888>/db monuments</color> — Monument map");
-                PrintToChat(player, "<color=#888>/db loot <type></color> — Loot locations");
-                PrintToChat(player, "<color=#888>/db kits</color> — Available kits");
-            }
-
-            if (HasRoleOrHigher(session.Role, "mod"))
-            {
-                PrintToChat(player, "\n<color=#FF9900>━━━ MOD COMMANDS ━━━</color>");
-                PrintToChat(player, "<color=#888>/db kick <player> <reason></color> — Kick player");
-                PrintToChat(player, "<color=#888>/db mute <player></color> — Mute player");
-                PrintToChat(player, "<color=#888>/db reports</color> — Staff report queue");
-                PrintToChat(player, "<color=#888>/db modreview <player></color> — AI moderation review");
-                PrintToChat(player, "<color=#888>/db unmute <player></color> — Unmute player");
-                PrintToChat(player, "<color=#888>/db freeze <player></color> — Freeze player");
-                PrintToChat(player, "<color=#888>/db msg <player> <msg></color> — Private message");
-                PrintToChat(player, "<color=#888>/db team <msg></color> — Team message");
-                PrintToChat(player, "<color=#888>/db event list|join</color> — List/join server events");
-            }
-
-            if (HasRoleOrHigher(session.Role, "admin"))
-            {
-                PrintToChat(player, "\n<color=#FF4444>━━━ ADMIN COMMANDS ━━━</color>");
-                PrintToChat(player, "<color=#888>/db status</color> — Server status");
-                PrintToChat(player, "<color=#888>/db pve on|off</color> — Toggle PvE mode");
-                PrintToChat(player, "<color=#888>/db ban <player> <reason></color> — Ban player");
-                PrintToChat(player, "<color=#888>/db unban <steamid></color> — Unban player");
-                PrintToChat(player, "<color=#888>/db admin <cmd></color> — Run RCON command");
-                PrintToChat(player, "<color=#888>/db heal <player></color> — Heal player");
-                PrintToChat(player, "<color=#888>/db give <player> <item> <qty></color> — Give items");
-                PrintToChat(player, "<color=#888>/db tp <from> <to></color> — Teleport");
-                PrintToChat(player, "<color=#888>/db spawn <item> <qty></color> — Spawn item");
-                PrintToChat(player, "<color=#888>/db event start <type> <args></color> — Start event");
-                PrintToChat(player, "<color=#888>/db event stop <type></color> — Cancel event");
-                PrintToChat(player, "<color=#888>/db settings</color> — Server settings");
-            }
-
-            PrintToChat(player, "\n<color=#FFD700>━━━ GAMES & FUN ━━━</color>");
-            PrintToChat(player, "<color=#888>/db roll <max></color> — Roll dice");
-            PrintToChat(player, "<color=#888>/db flip</color> — Flip coin");
-            PrintToChat(player, "<color=#888>/db 8ball <question></color> — Magic 8 ball");
-            PrintToChat(player, "<color=#888>/db joke</color> — Random joke");
-            PrintToChat(player, "<color=#888>/db fortune</color> — Daily fortune");
-            PrintToChat(player, "<color=#888>/db guess join <bet></color> — Number guessing game");
-            if (HasRoleOrHigher(session.Role, "vip"))
-                PrintToChat(player, "<color=#00BFFF>/db lucky</color> — Lucky block spin (VIP only)");
-
-            PrintToChat(player, "\n<color=#FFD700>═══════════════════════════════════════</color>");
-            PrintToChat(player, "Type /db <command> to use. Use /db terminal for AI chat.");
-        }
-
         private void ShowTerminal(BasePlayer player, PlayerSession session)
         {
             PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>");
