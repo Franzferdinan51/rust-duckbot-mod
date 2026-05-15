@@ -67,6 +67,13 @@ interface ServerStatus {
   mcpConnected: boolean;
   rconConnected?: boolean;
   lastUpdated: string;
+  serverName?: string;
+  serverSeed?: number;
+  worldSize?: number;
+  serverPvE?: boolean;
+  entityCount?: number;
+  sleepingPlayers?: number;
+  monuments?: Array<{ name: string; position: string; grid?: string }>;
 }
 
 interface ChatMessage {
@@ -158,6 +165,16 @@ interface KitDefinition {
   maxUsesPerDay: number;
 }
 
+interface RconResponseState {
+  requestId?: string;
+  identifier?: number;
+  command?: string;
+  message: string;
+  raw?: unknown;
+  time: string;
+  source?: string;
+}
+
 export interface DuckBotState {
   cameras: Map<string, CameraState>;
   players: Map<string, PlayerState>;
@@ -168,6 +185,7 @@ export interface DuckBotState {
   automationRules: Map<string, AutomationRule>;
   bases: BaseState[];
   marketListings: MarketListing[];
+  rconResponses: RconResponseState[];
   server: ServerStatus;
   rustClients: Set<WebSocket>;
   outboundMessages: JsonObject[];
@@ -348,6 +366,38 @@ function commandAllowed(config: ServerConfig, command: string): boolean {
   return config.allowedAdminCommands.includes(firstWord);
 }
 
+const READ_ONLY_RCON_COMMANDS = new Set(['status', 'serverinfo', 'player.list', 'players.online', 'server.hostname', 'server.seed', 'server.worldsize', 'server.pve', 'global.status']);
+
+function readOnlyRconAllowed(command: string): boolean {
+  const firstWord = command.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+  return READ_ONLY_RCON_COMMANDS.has(firstWord);
+}
+
+function sanitizeRconQuery(command: string): string | undefined {
+  const trimmed = command.trim();
+  if (!trimmed || trimmed.length > 180) return undefined;
+  if (/[;|&`$<>]/.test(trimmed)) return undefined;
+  return readOnlyRconAllowed(trimmed) ? trimmed : undefined;
+}
+
+function latestRconResponse(state: DuckBotState, command?: string): RconResponseState | undefined {
+  if (!command) return state.rconResponses[state.rconResponses.length - 1];
+  const firstWord = command.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+  return [...state.rconResponses].reverse().find((response) => response.command?.toLowerCase().startsWith(firstWord));
+}
+
+function parseRconMessage(message: string): JsonObject {
+  const lines = message.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const statusPlayers = lines
+    .filter((line) => /^\d+\s+/.test(line) || /steamid/i.test(line))
+    .slice(0, 200);
+  return {
+    lines,
+    summary: lines.slice(0, 20).join('\n'),
+    playerRows: statusPlayers,
+  };
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -368,6 +418,7 @@ export function createState(): DuckBotState {
     automationRules: new Map(),
     bases: [],
     marketListings: [],
+    rconResponses: [],
     server: {
       uptime: '0h',
       fps: 0,
@@ -462,6 +513,47 @@ export const ALL_TOOLS = [
   {
     name: 'rust_server_status',
     description: 'Get Rust server health: uptime, FPS, players, cameras, alerts, memory, and bridge status.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'rust_rcon_query',
+    description: 'Run a safe read-only RCON query and return the latest parsed output when available. Allowed: status, serverinfo, player.list, players.online, server.hostname, server.seed, server.worldsize, server.pve.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        command: schema.string('Read-only RCON command to run.'),
+        requester_id: schema.string('Requester Steam ID.'),
+        requester_role: schema.role,
+      },
+      required: ['command'],
+    },
+  },
+  {
+    name: 'rust_rcon_history',
+    description: 'Read recent RCON responses captured from the Rust WebRCON connection. Requires admin.',
+    inputSchema: {
+      type: 'object',
+      properties: { limit: schema.number('Default 10, max 50.'), requester_role: schema.role },
+    },
+  },
+  {
+    name: 'rust_get_server_info',
+    description: 'Get enriched live server info: name, seed/map fields when available, FPS, players, sleepers, entities, cameras, alerts, RCON/MCP state.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'rust_get_player_positions',
+    description: 'List online player positions/grid/nearest monument known from DuckBot heartbeat. Requires mod or higher unless requester filters self.',
+    inputSchema: { type: 'object', properties: { player_id: schema.string('Optional Steam ID/self filter.'), requester_id: schema.string('Requester Steam ID.'), requester_role: schema.role } },
+  },
+  {
+    name: 'rust_get_monument_info',
+    description: 'List known monument names, coordinates, and grid references from the RustDuckBot monument table.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'rust_bridge_status',
+    description: 'Inspect MCP bridge health, client count, queue depth, last heartbeat, and latest RCON response time.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -833,6 +925,47 @@ export async function handleToolCall(
     case 'rust_get_server_status':
       return jsonResult({ ...state.server, bridgeClients: state.rustClients.size, queuedMessages: state.outboundMessages.length });
 
+    case 'rust_rcon_query': {
+      const denied = requireRole(state, args, 'admin');
+      if (denied) return denied;
+      const command = sanitizeRconQuery(requiredString(args, 'command') ?? '');
+      if (!command) return textResult('Only safe read-only RCON queries are allowed for rust_rcon_query.', true);
+      const requestId = `rcon_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+      const sent = sendToRust(state, { type: 'admin_command', command, admin_name: optionalString(args, 'requester_id', 'mcp-query'), request_id: requestId });
+      const latest = latestRconResponse(state, command);
+      recordActivity(state, 'admin', 'rcon_query', command, optionalString(args, 'requester_id'), undefined, config.maxHistory);
+      return jsonResult({ status: sent ? 'sent_to_rust' : 'queued_no_rust_client', requestId, command, latestResponse: latest ? { ...latest, parsed: parseRconMessage(latest.message) } : null, note: 'RCON responses are asynchronous; call rust_rcon_history if this response predates the query.' });
+    }
+
+    case 'rust_rcon_history': {
+      const denied = requireRole(state, args, 'admin');
+      if (denied) return denied;
+      const limit = Math.min(optionalNumber(args, 'limit', 10), 50);
+      return jsonResult({ responses: state.rconResponses.slice(-limit).map((response) => ({ ...response, parsed: parseRconMessage(response.message) })), count: Math.min(state.rconResponses.length, limit) });
+    }
+
+    case 'rust_get_server_info':
+      return jsonResult({ ...state.server, bridgeClients: state.rustClients.size, queuedMessages: state.outboundMessages.length, latestRcon: latestRconResponse(state) ?? null });
+
+    case 'rust_get_player_positions': {
+      const requesterId = optionalString(args, 'requester_id');
+      const playerId = optionalString(args, 'player_id');
+      if (!playerId || playerId !== requesterId) {
+        const denied = requireRole(state, args, 'mod');
+        if (denied) return denied;
+      }
+      const players = Array.from(state.players.values())
+        .filter((player) => !playerId || player.id === playerId)
+        .map((player) => ({ id: player.id, name: player.name, role: player.role, online: player.online, position: player.position, ping: player.ping, connectedAt: player.connectedAt }));
+      return jsonResult({ players, count: players.length });
+    }
+
+    case 'rust_get_monument_info':
+      return jsonResult({ monuments: state.server.monuments ?? [], count: state.server.monuments?.length ?? 0 });
+
+    case 'rust_bridge_status':
+      return jsonResult({ bridgeClients: state.rustClients.size, queuedMessages: state.outboundMessages.length, bridgeStartedAt: state.bridgeStartedAt, lastHeartbeat: state.server.lastUpdated, mcpConnected: state.server.mcpConnected, rconConnected: state.server.rconConnected, latestRcon: latestRconResponse(state) ?? null });
+
     case 'rust_chat_send':
     case 'rust_send_chat': {
       const message = requiredString(args, 'message');
@@ -1139,6 +1272,9 @@ export function handleRustMessage(raw: JsonObject, state: DuckBotState = default
     case 'heartbeat': {
       state.server.mcpConnected = true;
       state.server.lastUpdated = nowIso();
+      // Store live server metrics from heartbeat
+      state.server.fps = valueAsNumber((raw as JsonObject)['fps'], 0);
+      state.server.uptime = valueAsString((raw as JsonObject)['uptime'], '0h');
       const players = raw['players'];
       if (Array.isArray(players)) {
         state.players.clear();
@@ -1150,6 +1286,19 @@ export function handleRustMessage(raw: JsonObject, state: DuckBotState = default
         }
       }
       state.server.players = valueAsNumber(raw['playerCount'] ?? raw['playersOnline'], state.players.size);
+      state.server.rconConnected = Boolean(raw['rconConnected'] ?? state.server.rconConnected);
+      state.server.serverName = valueAsString(raw['serverName'], state.server.serverName);
+      state.server.serverSeed = valueAsNumber(raw['serverSeed'], state.server.serverSeed ?? 0);
+      state.server.worldSize = valueAsNumber(raw['worldSize'], state.server.worldSize ?? 0);
+      state.server.serverPvE = Boolean(raw['serverPvE'] ?? state.server.serverPvE);
+      state.server.entityCount = valueAsNumber(raw['entityCount'], state.server.entityCount ?? 0);
+      state.server.sleepingPlayers = valueAsNumber(raw['sleepingPlayers'] ?? raw['sleeping'], state.server.sleepingPlayers ?? 0);
+      state.server.sleeping = state.server.sleepingPlayers;
+      const monuments = raw['monuments'];
+      if (Array.isArray(monuments)) state.server.monuments = monuments.map((item) => {
+        const monument = item as JsonObject;
+        return { name: valueAsString(monument['name']), position: valueAsString(monument['position']), grid: valueAsString(monument['grid']) };
+      });
       break;
     }
 
@@ -1271,6 +1420,22 @@ export function handleRustMessage(raw: JsonObject, state: DuckBotState = default
       break;
     }
 
+    case 'rcon_response': {
+      const message = valueAsString(raw['message'] ?? raw['response'] ?? raw['body']);
+      pushLimited(state.rconResponses, {
+        requestId: valueAsString(raw['request_id'] ?? raw['requestId']),
+        identifier: valueAsNumber(raw['identifier'] ?? raw['id'], 0),
+        command: valueAsString(raw['command']),
+        message,
+        raw,
+        source: valueAsString(raw['source'], 'rust-rcon'),
+        time: valueAsString(raw['time'], nowIso()),
+      }, config.maxHistory);
+      state.server.rconConnected = true;
+      state.server.lastUpdated = nowIso();
+      break;
+    }
+
     case 'automation_update': {
       const rules = raw['rules'];
       if (Array.isArray(rules)) {
@@ -1317,7 +1482,10 @@ export function createMcpServer(state: DuckBotState, config: ServerConfig): Serv
       { uri: 'rustduckbot://server/status', name: 'RustDuckBot server status', mimeType: 'application/json' },
       { uri: 'rustduckbot://cameras', name: 'Known cameras', mimeType: 'application/json' },
       { uri: 'rustduckbot://players', name: 'Known players', mimeType: 'application/json' },
-      { uri: 'rustduckbot://alerts', name: 'Security alerts', mimeType: 'application/json' },
+      { uri: 'rustduckbot://rcon/history', name: 'Recent RCON responses', mimeType: 'application/json' },
+      { uri: 'rustduckbot://activity', name: 'Activity/audit log', mimeType: 'application/json' },
+      { uri: 'rustduckbot://automation', name: 'Automation rules', mimeType: 'application/json' },
+      { uri: 'rustduckbot://monuments', name: 'Known monuments', mimeType: 'application/json' },
     ],
   }));
 
@@ -1327,6 +1495,10 @@ export function createMcpServer(state: DuckBotState, config: ServerConfig): Serv
     if (uri === 'rustduckbot://cameras') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(Array.from(state.cameras.values()), null, 2) }] };
     if (uri === 'rustduckbot://players') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(Array.from(state.players.values()), null, 2) }] };
     if (uri === 'rustduckbot://alerts') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(Array.from(state.alerts.values()), null, 2) }] };
+    if (uri === 'rustduckbot://rcon/history') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(state.rconResponses, null, 2) }] };
+    if (uri === 'rustduckbot://activity') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(state.activity, null, 2) }] };
+    if (uri === 'rustduckbot://automation') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(Array.from(state.automationRules.values()), null, 2) }] };
+    if (uri === 'rustduckbot://monuments') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(state.server.monuments ?? [], null, 2) }] };
     return { contents: [{ uri, mimeType: 'text/plain', text: `Unknown resource: ${uri}` }] };
   });
 

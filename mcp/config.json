@@ -9,8 +9,16 @@
   "allowedAdminCommands": [
     "status",
     "serverinfo",
+    "player.list",
+    "players.online",
+    "server.hostname",
+    "server.seed",
+    "server.worldsize",
+    "server.pve",
+    "global.status",
     "kick",
     "ban",
+    "banid",
     "unban",
     "say",
     "global.say",
@@ -18,6 +26,10 @@
     "teleport",
     "teleport2me",
     "weather",
-    "time"
+    "time",
+    "save",
+    "gc.collect",
+    "status.gpu",
+    "status.ram"
   ]
 }

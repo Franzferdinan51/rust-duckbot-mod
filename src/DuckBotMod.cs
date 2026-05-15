@@ -53,7 +53,7 @@ namespace Oxide.Plugins
             public bool EnableWebSocketRCON = true;
             public string RCONPassword = "";
             public int RCONPort = 28016;
-            public string[] AllowedRCONCommands = new[] { "status", "serverinfo", "kick", "ban", "banid", "unban", "say", "global.say", "inventory.give", "teleport", "teleport2me", "weather", "time" };
+            public string[] AllowedRCONCommands = new[] { "status", "serverinfo", "player.list", "players.online", "server.hostname", "server.seed", "server.worldsize", "server.pve", "global.status", "kick", "ban", "banid", "unban", "say", "global.say", "inventory.give", "teleport", "teleport2me", "weather", "time", "save", "gc.collect", "status.gpu", "status.ram" };
             public bool EnableGridMap = true;
             public bool EnablePlayerTracking = true;
             public bool EnableSmartAlerts = true;
@@ -181,6 +181,9 @@ namespace Oxide.Plugins
         private Dictionary<ulong, TeleportRequest> _teleportRequests = new Dictionary<ulong, TeleportRequest>();
         private HashSet<string> _monumentCameraCodes = new HashSet<string>();
         private HashSet<string> _playerOwnedCameraIds = new HashSet<string>();
+
+        private Dictionary<int, string> _pendingRconCommands = new Dictionary<int, string>();
+        private Dictionary<int, string> _pendingRconRequestIds = new Dictionary<int, string>();
 
         // Group / Party system
         private Dictionary<ulong, PlayerGroup> _groups = new Dictionary<ulong, PlayerGroup>();
@@ -4245,6 +4248,9 @@ namespace Oxide.Plugins
 
         private string GetAssistantResponse(BasePlayer player, PlayerSession session, string message, bool includeHistory = true)
         {
+            var context = $"Live server context: server={ConVar.Server.hostname}; players={BasePlayer.activePlayerList.Count}; sleepers={BasePlayer.sleepingPlayerList.Count}; fps={Math.Round(1.0f / Time.deltaTime, 1)}; uptime={Time.realtimeSinceStartup / 3600.0:F1}h; playerGrid={GetGridCoord(player.transform.position)}; nearestMonument={GetNearestMonument(player.transform.position)}; role={session?.Role ?? "user"}.\n";
+            message = context + message;
+
             var history = includeHistory ? session?.ChatHistory : null;
             if (_localAI != null && _localAI.IsLocalProvider)
             {
@@ -4747,7 +4753,7 @@ namespace Oxide.Plugins
                 return;
             }
 
-            ExecuteRconOrConsole(command, GetMessageString(message, "admin_name", "MCP"));
+            ExecuteRconOrConsole(command, GetMessageString(message, "admin_name", "MCP"), GetMessageString(message, "request_id"));
             LogActivity("admin", "MCP command", command, null, GetMessageString(message, "admin_name", "MCP"));
         }
 
@@ -4890,7 +4896,7 @@ namespace Oxide.Plugins
         {
             if (!_serverInitialized) return;
             var players = BasePlayer.activePlayerList;
-            var playerList = players.Select(p => new { id = p.UserIDString, name = p.displayName, ping = 0, role = GetOrCreateSession(p).Role, connectedAt = GetOrCreateSession(p).SessionStart.ToString("o") }).ToList();
+            var playerList = players.Select(p => new { id = p.UserIDString, name = p.displayName, ping = 0, role = GetOrCreateSession(p).Role, connectedAt = GetOrCreateSession(p).SessionStart.ToString("o"), position = GetGridCoord(p.transform.position), nearestMonument = GetNearestMonument(p.transform.position) }).ToList();
 
             _mcpClient?.SendMessage(new
             {
@@ -4900,6 +4906,13 @@ namespace Oxide.Plugins
                 players = playerList,
                 fps = Math.Round(1.0f / Time.deltaTime, 1),
                 uptime = $"{Time.realtimeSinceStartup / 3600.0:F1}h",
+                serverName = ConVar.Server.hostname,
+                serverSeed = ConVar.Server.seed,
+                worldSize = ConVar.Server.worldsize,
+                serverPvE = ConVar.Server.pve,
+                entityCount = BaseEntity.activeEntityList?.Count ?? 0,
+                sleepingPlayers = BasePlayer.sleepingPlayerList?.Count ?? 0,
+                monuments = _monumentLocations.Select(m => new { name = m.Key, position = $"{m.Value.x:F1},{m.Value.y:F1},{m.Value.z:F1}", grid = GetGridCoord(m.Value) }).ToList(),
                 mcpConnected = _mcpClient?.IsConnected == true,
                 rconConnected = _rconClient?.IsConnected == true
             });
@@ -5243,6 +5256,53 @@ namespace Oxide.Plugins
             Puts("[DuckBot] " + message);
         }
 
+        public void RegisterRconRequest(int identifier, string command, string requestId)
+        {
+            if (identifier <= 0) return;
+            _pendingRconCommands[identifier] = command ?? "";
+            if (!string.IsNullOrWhiteSpace(requestId)) _pendingRconRequestIds[identifier] = requestId;
+        }
+
+        public void HandleRconResponse(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json)) return;
+            try
+            {
+                var obj = SimpleJson.Deserialize(json) as Dictionary<string, object>;
+                var identifier = 0;
+                var message = json;
+                if (obj != null)
+                {
+                    if (obj.TryGetValue("Identifier", out var idValue) || obj.TryGetValue("identifier", out idValue))
+                        int.TryParse(Convert.ToString(idValue), out identifier);
+                    if (obj.TryGetValue("Message", out var messageValue) || obj.TryGetValue("message", out messageValue))
+                        message = Convert.ToString(messageValue);
+                }
+
+                var command = identifier > 0 && _pendingRconCommands.TryGetValue(identifier, out var pendingCommand) ? pendingCommand : "";
+                var requestId = identifier > 0 && _pendingRconRequestIds.TryGetValue(identifier, out var pendingRequestId) ? pendingRequestId : "";
+                if (identifier > 0)
+                {
+                    _pendingRconCommands.Remove(identifier);
+                    _pendingRconRequestIds.Remove(identifier);
+                }
+
+                _mcpClient?.SendMessage(new
+                {
+                    type = "rcon_response",
+                    identifier,
+                    request_id = requestId,
+                    command,
+                    message,
+                    time = DateTime.Now.ToString("o"),
+                    source = "web-rcon"
+                });
+            }
+            catch (Exception ex)
+            {
+                PrintWarning("Failed to parse RCON response: " + ex.Message);
+            }
+        }
         private bool IsRconCommandAllowed(string command)
         {
             if (string.IsNullOrWhiteSpace(command)) return false;
@@ -5251,13 +5311,13 @@ namespace Oxide.Plugins
             return allowList.Any(allowed => string.Equals(allowed, firstWord, StringComparison.OrdinalIgnoreCase));
         }
 
-        private void ExecuteRconOrConsole(string command, string actor)
+        private void ExecuteRconOrConsole(string command, string actor, string requestId = null)
         {
             if (string.IsNullOrWhiteSpace(command)) return;
 
             if (_rconClient?.IsConnected == true)
             {
-                _rconClient.Execute(command);
+                _rconClient.Execute(command, requestId);
                 LogDuckBotDebug($"RCON command by {actor}: {command}");
                 return;
             }
@@ -5932,14 +5992,20 @@ namespace Oxide.Plugins
 
         public async void Execute(string command)
         {
-            if (string.IsNullOrWhiteSpace(command)) return;
-            await SendRCONCommand(command);
+            Execute(command, null);
         }
 
-        private async Task SendRCONCommand(string command)
+        public async void Execute(string command, string requestId)
+        {
+            if (string.IsNullOrWhiteSpace(command)) return;
+            await SendRCONCommand(command, requestId);
+        }
+
+        private async Task SendRCONCommand(string command, string requestId = null)
         {
             if (!IsConnected) return;
             var msgId = System.Threading.Interlocked.Increment(ref _messageId);
+            _plugin.RegisterRconRequest(msgId, command, requestId);
             var json = SimpleJson.Serialize(new { Identifier = msgId, Message = command, Name = "WebRcon" });
             var bytes = Encoding.UTF8.GetBytes(json);
             await _ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, _cts.Token);
@@ -5947,16 +6013,22 @@ namespace Oxide.Plugins
 
         private async Task ReceiveLoop()
         {
-            var buffer = new byte[8192];
+            var buffer = new byte[16384];
             while (_ws?.State == WebSocketState.Open && !_cts.IsCancellationRequested)
             {
                 try
                 {
                     var result = await _ws.ReceiveAsync(new ArraySegment<byte>(buffer), _cts.Token);
                     if (result.MessageType == WebSocketMessageType.Close) break;
+                    var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                    _plugin.HandleRconResponse(json);
                 }
                 catch (OperationCanceledException) { break; }
-                catch { break; }
+                catch (Exception ex)
+                {
+                    _plugin.PrintWarning($"WS-RCON receive failed: {ex.Message}");
+                    break;
+                }
             }
             _connected = false;
         }
@@ -6264,6 +6336,12 @@ Live data sources:
 - Heartbeat sent every 30s from Rust plugin to MCP bridge
 - Cameras scanned at server init and on demand
 - Player count, FPS, uptime, connected players available in server status
+- Server name, seed, world size, PvE mode, entity count, sleeper count, monuments, player grid, and nearest monument are included when available
+
+MCP/RCON tools:
+- Read-only RCON query support: status, serverinfo, player.list, players.online, server.hostname, server.seed, server.worldsize, server.pve
+- Admin action RCON commands require admin role and whitelist validation
+- Informational tools should answer with live data when present and clearly say when data is stale or unavailable
 
 Rules:
 - Keep answers concise and Rust-specific
