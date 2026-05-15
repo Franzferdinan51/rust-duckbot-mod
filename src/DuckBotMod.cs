@@ -1815,12 +1815,6 @@ namespace Oxide.Plugins
             PrintToChat(player, $"<color=#FFD700>Camera:</color> {session.CurrentCameraId ?? "None"}");
             PrintToChat(player, $"<color=#FFD700>Messages:</color> {session.ChatHistory.Count}");
             PrintToChat(player, $"<color=#FFD700>Bookmarks:</color> {session.Bookmarks.Count}");
-
-            var perms = new List<string>();
-            foreach (var p in new[] { "rustduckbot.use", "rustduckbot.vip", "rustduckbot.mod", "rustduckbot.admin", "rustduckbot.security", "rustduckbot.automation", "rustduckbot.trading", "rustduckbot.intel" })
-                if (permission.UserHasPermission(player.UserIDString, p)) perms.Add(p.Replace("rustduckbot.", ""));
-            if (perms.Count > 0)
-                PrintToChat(player, $"<color=#FFD700>Permissions:</color> {string.Join(", ", perms)}");
         }
 
         // =====================================================================
