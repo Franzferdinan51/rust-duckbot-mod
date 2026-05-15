@@ -2172,12 +2172,11 @@ namespace Oxide.Plugins
             foreach (var p in BasePlayer.activePlayerList)
             {
                 var sess = GetOrCreateSession(p);
-                sess.LastKitUse = DateTime.MinValue;
                 sess.KitUsesToday = 0;
             }
-            Server.Broadcast("<color=#FF4444>⚠ WIPE DAY: All kit cooldowns have been reset.</color>");
-            PrintToChat(player, "<color=#00FF88>Kit cooldowns wiped for all players.</color>");
-            LogActivity("admin", "WipeKits", "All kit cooldowns reset by " + player.displayName, player.UserIDString, player.displayName);
+            Server.Broadcast("<color=#FF4444>⚠ WIPE DAY: All kit usage counters have been reset.</color>");
+            PrintToChat(player, "<color=#00FF88>Kit counters wiped for all players.</color>");
+            LogActivity("admin", "WipeKits", "All kit counters reset by " + player.displayName, player.UserIDString, player.displayName);
         }
 
         private void HandleBackup(BasePlayer player, PlayerSession session)
