@@ -6339,7 +6339,8 @@ Live data sources:
 - Server name, seed, world size, PvE mode, entity count, sleeper count, monuments, player grid, and nearest monument are included when available
 
 MCP/RCON tools:
-- Read-only RCON query support: status, serverinfo, player.list, players.online, server.hostname, server.seed, server.worldsize, server.pve
+- `rust_rcon_command_catalog` lists every allowed RCON command with category, role, safety level, examples, and whether to use read-only query or admin command execution
+- Read-only RCON query support: status, serverinfo, player.list, players.online, server.hostname, server.seed, server.worldsize, server.pve, global.status, status.gpu, status.ram
 - Admin action RCON commands require admin role and whitelist validation
 - Informational tools should answer with live data when present and clearly say when data is stale or unavailable
 

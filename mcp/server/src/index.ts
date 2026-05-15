@@ -366,7 +366,43 @@ function commandAllowed(config: ServerConfig, command: string): boolean {
   return config.allowedAdminCommands.includes(firstWord);
 }
 
-const READ_ONLY_RCON_COMMANDS = new Set(['status', 'serverinfo', 'player.list', 'players.online', 'server.hostname', 'server.seed', 'server.worldsize', 'server.pve', 'global.status']);
+const RCON_COMMAND_CATALOG = [
+  { command: 'status', category: 'read', role: 'admin', safety: 'read-only', description: 'Detailed server status including hostname, players, FPS, uptime, and connected player rows.', example: 'status' },
+  { command: 'serverinfo', category: 'read', role: 'admin', safety: 'read-only', description: 'Server metadata as reported by Rust, commonly including map/seed/world settings and player counts.', example: 'serverinfo' },
+  { command: 'player.list', category: 'read', role: 'admin', safety: 'read-only', description: 'List known/connected players when supported by the server build/plugins.', example: 'player.list' },
+  { command: 'players.online', category: 'read', role: 'admin', safety: 'read-only', description: 'List online players when supported by the server build/plugins.', example: 'players.online' },
+  { command: 'server.hostname', category: 'read', role: 'admin', safety: 'read-only', description: 'Show or query the configured server hostname.', example: 'server.hostname' },
+  { command: 'server.seed', category: 'read', role: 'admin', safety: 'read-only', description: 'Show the current map seed.', example: 'server.seed' },
+  { command: 'server.worldsize', category: 'read', role: 'admin', safety: 'read-only', description: 'Show the current map world size.', example: 'server.worldsize' },
+  { command: 'server.pve', category: 'read', role: 'admin', safety: 'read-only', description: 'Show whether PvE mode is enabled.', example: 'server.pve' },
+  { command: 'global.status', category: 'read', role: 'admin', safety: 'read-only', description: 'Alternate/global status command where supported.', example: 'global.status' },
+  { command: 'kick', category: 'moderation', role: 'admin', safety: 'action', description: 'Kick a player from the server. Requires target and optional reason.', example: 'kick "PlayerName" "reason"' },
+  { command: 'ban', category: 'moderation', role: 'admin', safety: 'destructive-action', description: 'Ban a player by name/ID depending on Rust command behavior.', example: 'ban "PlayerName" "reason"' },
+  { command: 'banid', category: 'moderation', role: 'admin', safety: 'destructive-action', description: 'Ban a SteamID with a reason/duration when supported.', example: 'banid 7656119... "reason"' },
+  { command: 'unban', category: 'moderation', role: 'admin', safety: 'action', description: 'Remove a ban for a player/SteamID.', example: 'unban 7656119...' },
+  { command: 'say', category: 'communication', role: 'admin', safety: 'action', description: 'Send a server chat message.', example: 'say "Server restart in 5 minutes"' },
+  { command: 'global.say', category: 'communication', role: 'admin', safety: 'action', description: 'Send a global server chat message.', example: 'global.say "Welcome to the server"' },
+  { command: 'inventory.give', category: 'inventory', role: 'admin', safety: 'action', description: 'Give item(s) through Rust inventory command syntax.', example: 'inventory.give wood 1000' },
+  { command: 'teleport', category: 'movement', role: 'admin', safety: 'action', description: 'Teleport a player using Rust teleport syntax.', example: 'teleport PlayerName 0 0 0' },
+  { command: 'teleport2me', category: 'movement', role: 'admin', safety: 'action', description: 'Teleport target player to the admin.', example: 'teleport2me PlayerName' },
+  { command: 'weather', category: 'world', role: 'admin', safety: 'action', description: 'Query or change weather depending on supplied arguments.', example: 'weather' },
+  { command: 'time', category: 'world', role: 'admin', safety: 'action', description: 'Query or change in-game time depending on supplied arguments.', example: 'time' },
+  { command: 'save', category: 'maintenance', role: 'admin', safety: 'action', description: 'Force a world/server save.', example: 'save' },
+  { command: 'gc.collect', category: 'maintenance', role: 'admin', safety: 'maintenance-action', description: 'Trigger garbage collection on the server.', example: 'gc.collect' },
+  { command: 'status.gpu', category: 'diagnostics', role: 'admin', safety: 'read-only', description: 'GPU diagnostic status where supported.', example: 'status.gpu' },
+  { command: 'status.ram', category: 'diagnostics', role: 'admin', safety: 'read-only', description: 'RAM diagnostic status where supported.', example: 'status.ram' },
+];
+
+function rconCatalogForConfig(config: ServerConfig): JsonObject[] {
+  return RCON_COMMAND_CATALOG
+    .filter((entry) => config.allowedAdminCommands.includes(entry.command))
+    .map((entry) => ({
+      ...entry,
+      enabled: true,
+      queryTool: READ_ONLY_RCON_COMMANDS.has(entry.command) ? 'rust_rcon_query' : 'rust_rcon_command',
+    }));
+}
+const READ_ONLY_RCON_COMMANDS = new Set(RCON_COMMAND_CATALOG.filter((entry) => entry.safety === 'read-only').map((entry) => entry.command));
 
 function readOnlyRconAllowed(command: string): boolean {
   const firstWord = command.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
@@ -514,6 +550,11 @@ export const ALL_TOOLS = [
     name: 'rust_server_status',
     description: 'Get Rust server health: uptime, FPS, players, cameras, alerts, memory, and bridge status.',
     inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'rust_rcon_command_catalog',
+    description: 'List every preconfigured RCON command DuckBot exposes to LM Studio, with category, role, safety level, examples, and whether to call rust_rcon_query or rust_rcon_command.',
+    inputSchema: { type: 'object', properties: { category: schema.string('Optional category filter: read, moderation, communication, inventory, movement, world, maintenance, diagnostics.'), safety: schema.string('Optional safety filter: read-only, action, destructive-action, maintenance-action.') } },
   },
   {
     name: 'rust_rcon_query',
@@ -924,6 +965,13 @@ export async function handleToolCall(
     case 'rust_server_status':
     case 'rust_get_server_status':
       return jsonResult({ ...state.server, bridgeClients: state.rustClients.size, queuedMessages: state.outboundMessages.length });
+
+    case 'rust_rcon_command_catalog': {
+      const category = optionalString(args, 'category');
+      const safety = optionalString(args, 'safety');
+      const catalog = rconCatalogForConfig(config).filter((entry) => (!category || entry['category'] === category) && (!safety || entry['safety'] === safety));
+      return jsonResult({ commands: catalog, count: catalog.length, readOnlyCommands: catalog.filter((entry) => entry['safety'] === 'read-only').map((entry) => entry['command']), actionCommands: catalog.filter((entry) => entry['safety'] !== 'read-only').map((entry) => entry['command']), guidance: 'Use rust_rcon_query for read-only commands. Use rust_rcon_command only for explicit admin actions after confirming target/action.' });
+    }
 
     case 'rust_rcon_query': {
       const denied = requireRole(state, args, 'admin');
@@ -1482,6 +1530,7 @@ export function createMcpServer(state: DuckBotState, config: ServerConfig): Serv
       { uri: 'rustduckbot://server/status', name: 'RustDuckBot server status', mimeType: 'application/json' },
       { uri: 'rustduckbot://cameras', name: 'Known cameras', mimeType: 'application/json' },
       { uri: 'rustduckbot://players', name: 'Known players', mimeType: 'application/json' },
+      { uri: 'rustduckbot://rcon/catalog', name: 'RCON command catalog', mimeType: 'application/json' },
       { uri: 'rustduckbot://rcon/history', name: 'Recent RCON responses', mimeType: 'application/json' },
       { uri: 'rustduckbot://activity', name: 'Activity/audit log', mimeType: 'application/json' },
       { uri: 'rustduckbot://automation', name: 'Automation rules', mimeType: 'application/json' },
@@ -1495,6 +1544,7 @@ export function createMcpServer(state: DuckBotState, config: ServerConfig): Serv
     if (uri === 'rustduckbot://cameras') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(Array.from(state.cameras.values()), null, 2) }] };
     if (uri === 'rustduckbot://players') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(Array.from(state.players.values()), null, 2) }] };
     if (uri === 'rustduckbot://alerts') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(Array.from(state.alerts.values()), null, 2) }] };
+    if (uri === 'rustduckbot://rcon/catalog') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(rconCatalogForConfig(config), null, 2) }] };
     if (uri === 'rustduckbot://rcon/history') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(state.rconResponses, null, 2) }] };
     if (uri === 'rustduckbot://activity') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(state.activity, null, 2) }] };
     if (uri === 'rustduckbot://automation') return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(Array.from(state.automationRules.values()), null, 2) }] };
