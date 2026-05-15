@@ -357,7 +357,7 @@ function pushLimited<T>(items: T[], item: T, max: number): void {
   while (items.length > max) items.shift();
 }
 
-export function createState(seedDemoData = DEFAULT_CONFIG.seedDemoData): DuckBotState {
+export function createState(): DuckBotState {
   const state: DuckBotState = {
     cameras: new Map(),
     players: new Map(),
@@ -381,40 +381,7 @@ export function createState(seedDemoData = DEFAULT_CONFIG.seedDemoData): DuckBot
     outboundMessages: [],
     bridgeStartedAt: nowIso(),
   };
-
-  if (seedDemoData) seedState(state);
   return state;
-}
-
-function seedState(state: DuckBotState): void {
-  [
-    { id: 'cam_gate_front', name: 'Main Gate', location: 'Front entrance', monument: 'Base', online: true, hasPower: true, isPTZ: true },
-    { id: 'cam_backyard', name: 'Back Yard', location: 'Rear perimeter', monument: 'Base', online: true, hasPower: true, isPTZ: false },
-    { id: 'cam_storage', name: 'Storage / TC', location: 'Core storage', monument: 'Base', online: true, hasPower: true, isPTZ: false },
-    { id: 'monument_oilrig', name: 'Oil Rig CCTV', location: 'Large Oil Rig', monument: 'Oil Rig', online: true, hasPower: true, isPTZ: false },
-    { id: 'monument_airfield', name: 'Airfield CCTV', location: 'Airfield', monument: 'Airfield', online: true, hasPower: true, isPTZ: false },
-  ].forEach((camera) => state.cameras.set(camera.id, camera));
-
-  [
-    { id: '76561198000000001', name: 'ServerOwner', role: 'admin' as Role, ping: 28, connectedAt: nowIso(), online: true },
-    { id: '76561198000000002', name: 'BaseBuilder', role: 'vip' as Role, ping: 52, connectedAt: nowIso(), online: true },
-  ].forEach((player) => state.players.set(player.id, player));
-
-  [
-    { id: 'auto_night_lights', name: 'Night Lights', trigger: 'time', condition: 'sunset', action: 'lights.on', enabled: true, priority: 1 },
-    { id: 'auto_raid_alert', name: 'Raid Auto-Alert', trigger: 'raid', condition: 'explosion_near_base', action: 'alert.all', enabled: true, priority: 3 },
-    { id: 'auto_decay_owner', name: 'Decay Reminder', trigger: 'decay', condition: '24h_warning', action: 'alert.owner', enabled: true, priority: 2 },
-  ].forEach((rule) => state.automationRules.set(rule.id, rule));
-
-  state.server = {
-    uptime: 'demo',
-    fps: 60,
-    players: state.players.size,
-    cameras: state.cameras.size,
-    alerts: 0,
-    mcpConnected: false,
-    lastUpdated: nowIso(),
-  };
 }
 
 const schema = {
@@ -1502,7 +1469,7 @@ const defaultState = createState();
 
 export async function main(): Promise<void> {
   const config = loadConfig();
-  const state = createState(config.seedDemoData);
+  const state = createState();
 
   if (config.bridgeEnabled) {
     startBridgeServer(state, config);
