@@ -2246,6 +2246,43 @@ namespace Oxide.Plugins
         }
 
         private void HandleAutoModerationConfig(BasePlayer player, PlayerSession session, string args)
+        {
+            if (!HasRoleOrHigher(session.Role, "admin"))
+            {
+                PrintToChat(player, "<color=#FF4444>Admin required</color>");
+                return;
+            }
+
+            var mode = (args ?? string.Empty).Trim().ToLowerInvariant();
+            if (string.IsNullOrEmpty(mode))
+            {
+                PrintToChat(player, "<color=#FFD700>═══ Auto Moderation ═══</color>");
+                PrintToChat(player, $"<color=#888>Status:</color> {(_config.EnableAutoModeration ? "ON" : "OFF")}");
+                PrintToChat(player, $"<color=#888>Report threshold:</color> {_config.AutoModerationReportThreshold}");
+                PrintToChat(player, $"<color=#888>Kick threshold:</color> {_config.AutoModerationKickThreshold}");
+                PrintToChat(player, $"<color=#888>Ban threshold:</color> {_config.AutoModerationBanThreshold}");
+                PrintToChat(player, "<color=#888>Usage:</color> /db automod on | /db automod off");
+                return;
+            }
+
+            if (mode == "on")
+            {
+                _config.EnableAutoModeration = true;
+                PrintToChat(player, "<color=#00FF88>Auto moderation enabled.</color>");
+                LogActivity("admin", "AutoMod", "Enabled by " + player.displayName, player.UserIDString, player.displayName);
+                return;
+            }
+
+            if (mode == "off")
+            {
+                _config.EnableAutoModeration = false;
+                PrintToChat(player, "<color=#FFAA00>Auto moderation disabled.</color>");
+                LogActivity("admin", "AutoMod", "Disabled by " + player.displayName, player.UserIDString, player.displayName);
+                return;
+            }
+
+            PrintToChat(player, "<color=#888>Usage:</color> /db automod on | /db automod off");
+        }
 
         private void HandleAdminEvent(BasePlayer player, PlayerSession session, string args)
         {
