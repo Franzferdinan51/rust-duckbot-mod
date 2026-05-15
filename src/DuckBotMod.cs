@@ -1469,7 +1469,6 @@ namespace Oxide.Plugins
                 case "analyze": AnalyzeBase(player, session); break;
 
                 // === ADMIN UTILS ===
-                case "broadcast": HandleBroadcast(player, session, argStr); break;
                 case "wipekits": HandleWipeKits(player, session); break;
                 case "backup": HandleBackup(player, session); break;
 
