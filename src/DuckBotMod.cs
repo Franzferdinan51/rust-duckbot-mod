@@ -1490,7 +1490,6 @@ namespace Oxide.Plugins
                 case "fortune": ShowFortune(player, session); break;
                 case "guess": HandleGuess(player, session, argStr); break;
                 case "lucky": HandleLucky(player, session); break;
-                case "shop": HandleShop(player, session, argStr); break;
                 case "slots": PlaySlots(player, session); break;
                 case "bet": PlaceBet(player, session, argStr); break;
 
