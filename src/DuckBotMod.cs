@@ -1337,7 +1337,7 @@ namespace Oxide.Plugins
                 case "schedule": ShowSchedule(player, session); break;
 
                 // === TRADING ===
-                case "shop": case "market": ShowShop(player, session); break;
+                case "shop": case "market": HandleShopLegacy(player, session, argStr); break;
                 case "sell": HandleSell(player, session, argStr); break;
                 case "buy": HandleBuy(player, session, argStr); break;
                 case "price": CheckPrice(player, session, argStr); break;
@@ -1611,8 +1611,8 @@ namespace Oxide.Plugins
             timer.Once(1.4f, () => PrintToChat(player, "<color=#888>/db upkeep</color> — Upkeep info"));
             timer.Once(1.45f, () => PrintToChat(player, "<color=#888>/db auth</color> — TC auth list"));
             timer.Once(1.5f, () => PrintToChat(player, "\n<color=#1ABC9C>━━━ TRADING ━━━</color>"));
-            timer.Once(1.55f, () => PrintToChat(player, "<color=#888>/db shop list|add|buy|remove</color> — Player shop"));
-            timer.Once(1.6f, () => PrintToChat(player, "<color=#888>/db shop exchange scrap|rp <amt></color> — Exchange scrap/RP"));
+            timer.Once(1.55f, () => PrintToChat(player, "<color=#888>/db shop, /db sell, /db buy, /db listings</color> — Player market"));
+            timer.Once(1.6f, () => PrintToChat(player, "<color=#888>/db price <item></color> — Check market prices"));
             timer.Once(1.65f, () => PrintToChat(player, "<color=#888>/db vending</color> — Manage vending machines"));
             timer.Once(1.7f, () => PrintToChat(player, "\n<color=#3498DB>━━━ INTEL ━━━</color>"));
             timer.Once(1.75f, () => PrintToChat(player, "<color=#888>/db players</color> — Online players"));
@@ -4711,119 +4711,78 @@ namespace Oxide.Plugins
             public DateTime ListedAt;
         }
 
-        private void HandleShop(BasePlayer player, PlayerSession session, string args)
+        private void HandleShopLegacy(BasePlayer player, PlayerSession session, string args)
         {
-            var parts = args.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length == 0) { ShowShopHelp(player); return; }
-            var cmd = parts[0].ToLowerInvariant();
-            if (cmd == "list") { ListShop(player); return; }
-            if (cmd == "add" && parts.Length >= 3)
-            { AddShopListing(player, session, parts[1], parts[2]); return; }
-            if (cmd == "buy" && parts.Length >= 2)
-            { BuyShopItem(player, session, string.Join(" ", parts.Skip(1))); return; }
-            if (cmd == "remove" && parts.Length >= 2)
-            { RemoveShopListing(player, session, string.Join(" ", parts.Skip(1))); return; }
-            if (cmd == "exchange" && parts.Length >= 3)
-            { ExchangeScrapRP(player, session, parts[1], parts[2]); return; }
-            ShowShopHelp(player);
-        }
-
-        private void ShowShopHelp(BasePlayer player)
-        {
-            PrintToChat(player, "<color=#FFD700>═══ Shop ═══</color>");
-            PrintToChat(player, "<color=#AAA>/db shop list</color> — Browse listings");
-            PrintToChat(player, "<color=#AAA>/db shop add <item> <scrap_price></color> — List an item");
-            PrintToChat(player, "<color=#AAA>/db shop buy <item_name></color> — Buy from a listing");
-            PrintToChat(player, "<color=#AAA>/db shop remove <item></color> — Remove your listing");
-            PrintToChat(player, "<color=#AAA>/db shop exchange <scrap|rp> <amount></color> — Exchange scrap/RP");
-        }
-
-        private void ListShop(BasePlayer player)
-        {
-            var activeListings = _shopListings.Where(l => l.Available).OrderByDescending(l => l.ListedAt).ToList();
-            if (activeListings.Count == 0) { PrintToChat(player, "<color=#888>No active listings. Be the first!</color>"); return; }
-            PrintToChat(player, $"<color=#FFD700>═══ Shop ({activeListings.Count} listings) ═══</color>");
-            foreach (var listing in activeListings.Take(10))
+            if (string.IsNullOrWhiteSpace(args))
             {
-                var owner = BasePlayer.activePlayerList.FirstOrDefault(p => p.UserIDString == listing.SellerId);
-                PrintToChat(player, $"<color=#00FF88>{listing.ItemName}</color> x{listing.Quantity} — {listing.PricePerUnit:0} {listing.Currency} (seller: {owner?.displayName ?? listing.SellerId ?? "offline"})");
+                ShowShop(player, session);
+                return;
             }
-            if (activeListings.Count > 10) PrintToChat(player, $"<color=#888>+{activeListings.Count - 10} more</color>");
+
+            var parts = args.Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
+            var cmd = parts[0].ToLowerInvariant();
+            var rest = parts.Length > 1 ? parts[1] : string.Empty;
+            if (cmd == "list") { ShowShop(player, session); return; }
+            if (cmd == "add") { HandleSell(player, session, rest); return; }
+            if (cmd == "buy") { HandleBuy(player, session, rest); return; }
+            if (cmd == "remove") { HandleCancel(player, rest); return; }
+            if (cmd == "exchange") { ExchangeScrapRP(player, session, rest); return; }
+            ShowShopHelpLegacy(player);
         }
 
-        private void AddShopListing(BasePlayer player, PlayerSession session, string itemName, string priceStr)
+        private void ListShopLegacy(BasePlayer player)
         {
-            if (!float.TryParse(priceStr, out var price) || price <= 0) { PrintToChat(player, "Invalid price."); return; }
-            var playerListings = _shopListings.Count(l => l.SellerId == player.UserIDString && l.Available);
-            if (playerListings >= _config.ShopMaxListingsPerPlayer) { PrintToChat(player, $"Max {_config.ShopMaxListingsPerPlayer} listings per player."); return; }
-            var existing = _shopListings.FirstOrDefault(l => l.SellerId == player.UserIDString && l.Available && l.ItemName.Equals(itemName, StringComparison.OrdinalIgnoreCase));
-            if (existing != null) { PrintToChat(player, $"You already have {itemName} listed for {existing.PricePerUnit:0} {existing.Currency}. Remove it first."); return; }
-            var listing = new ShopListing
+            ShowShop(player, GetOrCreateSession(player));
+        }
+
+        private void AddShopListingLegacy(BasePlayer player, PlayerSession session, string itemName, string priceStr)
+        {
+            HandleSell(player, session, string.IsNullOrWhiteSpace(priceStr) ? itemName : (itemName + " " + priceStr));
+        }
+
+        private void BuyShopItemLegacy(BasePlayer player, PlayerSession session, string itemName)
+        {
+            HandleBuy(player, session, itemName);
+        }
+
+        private void RemoveShopListingLegacy(BasePlayer player, PlayerSession session, string itemName)
+        {
+            HandleCancel(player, itemName);
+        }
+
+        private void ExchangeScrapRP(BasePlayer player, PlayerSession session, string args)
+        {
+            if (string.IsNullOrWhiteSpace(args))
             {
-                Id = Guid.NewGuid().ToString("N").Substring(0, 8),
-                SellerId = player.UserIDString,
-                ItemName = itemName,
-                Quantity = 1,
-                PricePerUnit = price,
-                Currency = "scrap",
-                Available = true,
-                ListedAt = DateTime.Now,
-                Description = "Player listing"
-            };
-            _shopListings.Add(listing);
-            PrintToChat(player, $"<color=#00FF88>Listed {itemName} for {price:0} scrap.</color>");
-            LogActivity("economy", "shop_add", $"{itemName}@{price:0} by {player.displayName}", player.UserIDString, player.displayName);
-        }
+                PrintToChat(player, "Use: /db shop exchange scrap <amount>");
+                return;
+            }
 
-        private void BuyShopItem(BasePlayer player, PlayerSession session, string itemName)
-        {
-            var listing = _shopListings.FirstOrDefault(l => l.Available && l.ItemName.Equals(itemName, StringComparison.OrdinalIgnoreCase));
-            if (listing == null) { PrintToChat(player, $"No listing found for '{itemName}'."); return; }
-            if (listing.SellerId == player.UserIDString) { PrintToChat(player, "You can't buy your own listing."); return; }
-            var buyerSession = GetOrCreateSession(player);
-            var totalPrice = (int)Math.Ceiling(listing.PricePerUnit * listing.Quantity);
-            if (buyerSession.TotalScrap < totalPrice) { PrintToChat(player, $"Not enough scrap. Need {totalPrice}, have {buyerSession.TotalScrap}."); return; }
-            var seller = BasePlayer.activePlayerList.FirstOrDefault(p => p.UserIDString == listing.SellerId);
-            buyerSession.TotalScrap -= totalPrice;
-            var sellerSession = seller != null ? GetOrCreateSession(seller) : null;
-            if (sellerSession != null) sellerSession.TotalScrap += totalPrice;
-            Server.Command($"scavenger.additem \"{player.UserIDString}\" {listing.ItemName} {listing.Quantity}");
-            listing.Available = false;
-            PrintToChat(player, $"<color=#00FF88>Purchased {listing.ItemName} for {totalPrice} scrap!</color>");
-            if (seller != null) PrintToChat(seller, $"<color=#FFD700>{player.displayName}</color> bought your <color=#00FF88>{listing.ItemName}</color> for {totalPrice} scrap!");
-            LogActivity("economy", "shop_buy", $"{listing.ItemName} sold for {totalPrice} scrap to {player.displayName}", player.UserIDString, player.displayName);
-        }
-
-        private void RemoveShopListing(BasePlayer player, PlayerSession session, string itemName)
-        {
-            var listing = _shopListings.FirstOrDefault(l => l.SellerId == player.UserIDString && l.Available && l.ItemName.Equals(itemName, StringComparison.OrdinalIgnoreCase));
-            if (listing == null) { PrintToChat(player, $"No listing found for '{itemName}' under your name."); return; }
-            listing.Available = false;
-            PrintToChat(player, $"Removed listing: {itemName}.");
-        }
-
-        private void ExchangeScrapRP(BasePlayer player, PlayerSession session, string type, string amountStr)
-        {
-            if (!int.TryParse(amountStr, out var amount) || amount <= 0) { PrintToChat(player, "Invalid amount."); return; }
-            var isScrap = type.ToLowerInvariant() == "scrap";
-            var isRp = type.ToLowerInvariant() == "rp";
-            if (!isScrap && !isRp) { PrintToChat(player, "Use: /db shop exchange scrap <amount> or /db shop exchange rp <amount>"); return; }
+            var parts = args.Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 2) { PrintToChat(player, "Use: /db shop exchange scrap <amount>"); return; }
+            if (!int.TryParse(parts[1], out var amount) || amount <= 0) { PrintToChat(player, "Invalid amount."); return; }
+            var type = parts[0].ToLowerInvariant();
             var rate = _config.ShopExchangeRateScrapPerRP;
-            if (isScrap)
+            if (type == "scrap")
             {
                 if (session.TotalScrap < amount) { PrintToChat(player, $"Not enough scrap. Have {session.TotalScrap}."); return; }
-                var rp = amount / rate;
+                var rp = amount / Math.Max(1, rate);
                 if (rp < 1) { PrintToChat(player, $"Minimum exchange is {rate} scrap for 1 RP."); return; }
                 session.TotalScrap -= amount;
                 PrintToChat(player, $"<color=#FFD700>Exchanged {amount} scrap for {rp} RP.</color>");
                 LogActivity("economy", "exchange", $"scrap->rp: {amount} scrap, {rp} RP to {player.displayName}", player.UserIDString, player.displayName);
                 return;
             }
-            var scrapNeeded = amount * rate;
-            if (session.TotalScrap < scrapNeeded) { PrintToChat(player, $"Not enough scrap. Need {scrapNeeded}, have {session.TotalScrap}."); return; }
-            session.TotalScrap -= scrapNeeded;
-            PrintToChat(player, $"<color=#FFD700>Exchanged {scrapNeeded} scrap for {amount} RP.</color>");
-            LogActivity("economy", "exchange", $"rp->scrap: {scrapNeeded} scrap, {amount} RP to {player.displayName}", player.UserIDString, player.displayName);
+            if (type == "rp")
+            {
+                var scrapNeeded = amount * Math.Max(1, rate);
+                if (session.TotalScrap < scrapNeeded) { PrintToChat(player, $"Not enough scrap. Need {scrapNeeded}, have {session.TotalScrap}."); return; }
+                session.TotalScrap -= scrapNeeded;
+                PrintToChat(player, $"<color=#FFD700>Exchanged {scrapNeeded} scrap for {amount} RP.</color>");
+                LogActivity("economy", "exchange", $"rp->scrap: {scrapNeeded} scrap, {amount} RP to {player.displayName}", player.UserIDString, player.displayName);
+                return;
+            }
+            PrintToChat(player, "Use: /db shop exchange scrap <amount> or /db shop exchange rp <amount>");
         }
 
         // ── Lucky Block (VIP+) ──────────────────────────────────────────────
@@ -4937,20 +4896,25 @@ namespace Oxide.Plugins
         // MISC
         // =====================================================================
 
+        private string GetAssistantResponse(string playerName, string role, string message, List<ChatEntry> history)
+        {
+            if (_localAI != null && _localAI.IsLocalProvider)
+            {
+                var local = _localAI.GetResponse(playerName, role, message, history);
+                if (!string.IsNullOrWhiteSpace(local)) return local;
+            }
+
+            var remote = _agentBridge?.GetResponse(playerName, role, message, history);
+            return string.IsNullOrWhiteSpace(remote) ? "No AI response available." : remote;
+        }
+
         private string GetAssistantResponse(BasePlayer player, PlayerSession session, string message, bool includeHistory = true)
         {
             var context = $"Live server context: server={ConVar.Server.hostname}; players={BasePlayer.activePlayerList.Count}; sleepers={BasePlayer.sleepingPlayerList.Count}; fps={Math.Round(1.0f / Time.deltaTime, 1)}; uptime={Time.realtimeSinceStartup / 3600.0:F1}h; playerGrid={GetGridCoord(player.transform.position)}; nearestMonument={GetNearestMonument(player.transform.position)}; role={session?.Role ?? "user"}.\n";
             message = context + message;
 
             var history = includeHistory ? session?.ChatHistory : null;
-            if (_localAI != null && _localAI.IsLocalProvider)
-            {
-                var local = _localAI.GetResponse(player.displayName, session.Role, message, history);
-                if (!string.IsNullOrWhiteSpace(local)) return local;
-            }
-
-            var remote = _agentBridge?.GetResponse(player.displayName, session.Role, message, history);
-            return string.IsNullOrWhiteSpace(remote) ? "No AI response available." : remote;
+            return GetAssistantResponse(player.displayName, session?.Role ?? "user", message, history);
         }
 
         private bool TryGrantBuiltInKit(BasePlayer target, KitDefinition kit, out string error)
