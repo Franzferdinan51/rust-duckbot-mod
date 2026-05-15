@@ -2386,7 +2386,8 @@ namespace Oxide.Plugins
                         var wPlayer = BasePlayer.activePlayerList.FirstOrDefault(pl => pl.userID == winner);
                         var prize = pot / evt.Participants.Count;
                         if (wPlayer != null) { Server.Command($"scavenger.additem \"{wPlayer.UserIDString}\" scrap {prize}"); }
-                        narr = $"🪙 COINFLIP RESULT: {(winner == BasePlayer.activePlayerList.FirstOrDefault(pl => pl.userID == winner)?.displayName ?? "Player")} WON {prize} scrap!";
+                        var winnerName = wPlayer?.displayName ?? "Player";
+                        narr = $"🪙 COINFLIP RESULT: {winnerName} WON {prize} scrap!";
                         var aiNarr = GetAssistantResponse(wPlayer?.displayName ?? "Server", "admin", $"A coinflip event just resolved in Rust. The winner got {prize} scrap out of {evt.Participants.Count} players. Write a short, exciting 1-sentence result announcement.", null);
                         if (!string.IsNullOrEmpty(aiNarr) && !aiNarr.StartsWith("⚠")) narr = aiNarr;
                         Server.Broadcast($"<color=#FFD700>{narr}</color>");
