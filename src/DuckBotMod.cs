@@ -2197,7 +2197,7 @@ namespace Oxide.Plugins
                     wb.UploadString(_config.DiscordWebhookUrl, "POST", payload);
                 }
             }
-            catch (Exception ex) { PrintToServer($"Discord notification failed: {ex.Message}"); }
+            catch (Exception ex) { PrintAsh($"Discord notification failed: {ex.Message}"); }
         }
 
         private void SendTelegram(string message, string eventType)
@@ -2213,7 +2213,7 @@ namespace Oxide.Plugins
                     wb.DownloadString($"https://api.telegram.org/bot{botToken}/sendMessage?chat_id={chatId}&text={encodedMsg}");
                 }
             }
-            catch (Exception ex) { PrintToServer($"Telegram notification failed: {ex.Message}"); }
+            catch (Exception ex) { PrintAsh($"Telegram notification failed: {ex.Message}"); }
         }
 
         private void NotifyExternal(string message, string eventType)
