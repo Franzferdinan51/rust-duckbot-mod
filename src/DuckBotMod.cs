@@ -2284,7 +2284,7 @@ namespace Oxide.Plugins
             var parts = args.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length < 2) { ShowEventHelp(player); return; }
             var cmd = parts[0].ToLowerInvariant();
-            if (cmd == "start") { RunAdminEvent(player, parts[1], parts.Length > 2 ? parts[2] : ""); return; }
+            if (cmd == "start") { RunAdminEvent(player, session, parts[1], parts.Length > 2 ? parts[2] : ""); return; }
             if (cmd == "stop" || cmd == "cancel") { StopAdminEvent(player, parts.Length > 1 ? parts[1] : ""); return; }
             if (cmd == "list") { ListAdminEvents(player); return; }
             if (cmd == "join") { JoinEvent(player, session); return; }
@@ -2303,7 +2303,7 @@ namespace Oxide.Plugins
             PrintToChat(player, "<color=#AAA>/db event stop <name></color> — Cancel an event (admin)");
         }
 
-        private void RunAdminEvent(BasePlayer player, string type, string args)
+        private void RunAdminEvent(BasePlayer player, PlayerSession session, string type, string args)
         {
             var key = type.ToLowerInvariant();
             if (_activeAdminEvents.ContainsKey(key)) { PrintToChat(player, $"<color=#FF4444>Event '{type}' is already running.</color>"); return; }
