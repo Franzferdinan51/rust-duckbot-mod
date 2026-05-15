@@ -2,7 +2,7 @@
 
 > **v1.4.5** — AI-powered in-game terminal for Rust. Runs with or without an AI agent.
 
-**✅ Loaded and working** — `RustDuckBot v1.4.5` is running on the live server with built-in kit grants and LM Studio active.
+**✅ Loaded and working** — `RustDuckBot v1.4.5` is running on the live server with built-in kit grants, LM Studio active, MCP/RCON enhancements, AI map/world tools, and moderation/report workflow.
 
 **📦 Built-in kits** — `/db kit starter`, `/db kit pvp`, `/db kit building`, `/db kit mini`, `/db kit scrap`, `/db kit admin` all grant items directly through RustDuckBot — no external Kits plugin required.
 
@@ -23,14 +23,9 @@ RustDuckBot turns Rust's Computer Station into an interactive AI terminal. Every
 - **🤖 5 AI backends** — DuckBot MCP, LM Studio (local), OpenAI, Anthropic/Claude, OpenRouter
 - **🖥 Computer Station UI** — CUI overlay for players at Computer Stations
 - **🛰 Full teleport system** — 13 teleport commands including tpr/tpa request flow, sethome (5 per player), town, bandit, back, random TP, and coordinates
-- **🛡 Moderation tools** — report system with queue, slay, respawn, player notes, admin whisper, mute list
-- **💰 Economy & rewards** — daily scrap/RP reward, playtime tracker, top leaderboard (kills/playtime/KD)
-- **⚔️ Combat intel** — death history, killer lookup, weapon stats (16 weapons), item comparison, loot finder
-- **🏠 Building helpers** — TC scanner (200m), cupboard coverage checker, decay scan
-- **🔔 Notification system** — night alerts, event subscriptions, notification list/clear
-- **🔐 AI RCON access** — admin-gated MCP/RCON commands with an allowlist
-- **🎁 AI kit tools** — agents can list kits and admin-gate kit grants through MCP
-- **🎲 AI fun + helper tools** — dice rolls, 8-ball answers, and contextual Rust tips via MCP bridge
+- **🗺 AI map/world tools** — `/db mapintel`, `/db route <target>`, `/db brief`, `/db wipeprep`, `/db eventintel`, `/db teamintel` use live grid, monument, marker, and server context.
+- **🛡 Moderation workflow** — `/db report`, `/db reports`, `/db modreview` with AI review support and optional auto-kick/auto-ban thresholds.
+- **🔐 Enhanced MCP/RCON** — read-only RCON query/history, command catalog, bridge status, server info, player positions, monument info, map overview, route advice, moderation context.
 
 ---
 
@@ -118,15 +113,16 @@ Any interchangeable MCP-capable agent can use the tool surface. Regular player f
 
 | Tool Area | Examples |
 |---|---|
-| Context | `rust_computer_context`, `rust_agent_status`, `rust_server_status` |
-| Players | `rust_list_players`, `rust_find_player`, `rust_get_player_info` |
+| Context | `rust_computer_context`, `rust_agent_status`, `rust_server_status`, `rust_get_server_info`, `rust_bridge_status` |
+| Players | `rust_list_players`, `rust_find_player`, `rust_get_player_info`, `rust_get_player_positions` |
 | Cameras | `rust_list_cameras`, `rust_view_camera`, `rust_control_camera`, `rust_get_camera_snapshot` |
 | Security | `rust_list_alerts`, `rust_ack_alert`, `rust_security_scan`, `rust_lockdown` |
 | Kits | `rust_list_kits`, `rust_give_kit` |
 | Fun/Guidance | `rust_roll_dice`, `rust_8ball`, `rust_player_tip` |
-| Economy | `rust_market_listings` |
-| Map/Base | `rust_list_map_markers`, `rust_add_map_marker`, `rust_base_status` |
-| Admin/RCON | `rust_admin_command`, `rust_rcon_command`, `rust_kick_player`, `rust_ban_player` |
+| Economy | `rust_market_listings` *(prepared/stubbed until live market data is populated)* |
+| Map/World | `rust_map_overview`, `rust_get_monument_info`, `rust_route_advice`, `rust_monument_advice_context`, `rust_list_map_markers`, `rust_map_marker_catalog`, `rust_add_map_marker` |
+| Moderation | `rust_chat_moderation_context`, `rust_kick_player`, `rust_ban_player` |
+| Admin/RCON | `rust_rcon_command_catalog`, `rust_rcon_query`, `rust_rcon_history`, `rust_admin_command`, `rust_rcon_command` |
 
 ---
 
@@ -141,17 +137,9 @@ Any interchangeable MCP-capable agent can use the tool surface. Regular player f
 | **Chat** | `ask <msg>`, `chat` (opens CUI panel), `history` |
 | **Teleport** | `tpr <player>`, `tpa <player>`, `tpc`/`accept`, `tpd`/`deny`, `home [name]`, `sethome [name]`, `removehome [name]`, `town`, `bandit`, `back`, `rtele`, `pos`/`coords` |
 | **Messaging** | `msg <player> <message>`, `ignore <player>`, `unignore <player>`, `afk`, `team <msg>`, `broadcast`/`bc` |
-| **Moderation** | `report <player> <reason>`, `slay <player>`, `respawn <player>`, `notes <player> [view/add/remove/clear]`, `adminmsg <player> <msg>`, `mutelist`, `kick`, `ban`, `unban`, `freeze`, `heal`, `give` |
-| **Intel** | `players`, `player <name>`, `track <name>`, `history`, `leaderboard`, `stats`, `radar`, `loot`, `map`, `markers`, `marker`, `near`, `deaths`, `kills`, `kd`, `death [player]`, `killer [player]`, `weapon <name>`, `compare <item1> <item2>` |
-| **Trading** | `shop`, `sell <item> <price>`, `buy <item>`, `price <item>`, `vending`, `listings`, `market` |
-| **Economy** | `daily` (claim reward), `playtime` (session/today/total), `top [kills|playtime|kd]` (leaderboard) |
-| **Kits** | `kits` (list), `kit <name>` (redeem: starter/pvp/building/mini) |
-| **Building** | `tc` (tool cupboard nearby), `cupsize` (cupboard coverage), `decaycheck` (structures within radius) |
-| **Notifications** | `night` (toggle night alert), `notify`/`notifications` (list/clear), `subscribe <event>` (night/raid/decay/events) |
-| **Utility** | `time`, `weather`, `wipe`, `monuments`/`monu`, `events`, `server`, `uptime` |
-| **Automation** | `automation`, `auto <rule>` |
-| **Fun** | `8ball`, `flip`, `roll`, `rps`, `joke`, `fortune`, `bet`, `quote`, `events`, `recipes`, `blueprint`, `research`, `news` |
-| **Admin** | `admin <rcon_command>`, `teleport`/`tp`, `spawn`, `wipe`, `mark`, `bookmarks`, `bookmark`, `removealt` |
+| **Moderation** | `report <player> <reason>`, `reports`, `modreview <player>`, `slay <player>`, `respawn <player>`, `notes <player> [view/add/remove/clear]`, `adminmsg <player> <msg>`, `mutelist`, `kick`, `ban`, `unban`, `freeze`, `heal`, `give` |
+| **Intel / Map** | `players`, `player <name>`, `track <name>`, `history`, `leaderboard`, `stats`, `radar`, `loot`, `map`, `grid`, `mapintel`, `route <target>`, `markers`, `mark`, `near`, `deaths`, `kills`, `kd`, `death [player]`, `killer [player]`, `weapon <name>`, `compare <item1> <item2>` |
+| **AI World** | `ask <msg>`, `brief`, `wipeprep`, `eventintel`, `teamintel`, `chat` (opens CUI panel), `history` |
 
 ---
 
@@ -206,14 +194,39 @@ For WindowsGSM, set the same RCON password in `server.cfg` and `oxide/config/Rus
   "EnableWebSocketRCON": true,
   "RCONPort": 28016,
   "RCONPassword": "same-password-as-server.cfg",
-  "AllowedRCONCommands": ["status", "serverinfo", "say", "global.say", "kick", "ban", "banid", "unban", "teleport", "teleport2me"]
+  "AllowedRCONCommands": [
+    "status",
+    "serverinfo",
+    "player.list",
+    "players.online",
+    "server.hostname",
+    "server.seed",
+    "server.worldsize",
+    "server.pve",
+    "global.status",
+    "kick",
+    "ban",
+    "banid",
+    "unban",
+    "say",
+    "global.say",
+    "inventory.give",
+    "teleport",
+    "teleport2me",
+    "weather",
+    "time",
+    "save",
+    "gc.collect",
+    "status.gpu",
+    "status.ram"
+  ]
 }
 ```
 
 For MCP/agent use, mirror the command allowlist:
 ```bash
 set RUST_DUCKBOT_ADMIN_TOKEN=change-me
-set RUST_DUCKBOT_ALLOWED_COMMANDS=status,serverinfo,say,global.say,kick,ban,banid,unban,teleport,teleport2me
+set RUST_DUCKBOT_ALLOWED_COMMANDS=status,serverinfo,player.list,players.online,server.hostname,server.seed,server.worldsize,server.pve,global.status,kick,ban,banid,unban,say,global.say,inventory.give,teleport,teleport2me,weather,time,save,gc.collect,status.gpu,status.ram
 ```
 On macOS/Linux use `export` instead of `set`. The agent tool is `rust_rcon_command` and still requires an admin player role plus the admin token when configured.
 
@@ -223,15 +236,16 @@ Player-safe MCP tools include `rust_roll_dice`, `rust_8ball`, and `rust_player_t
 
 ### 5. Use in-game
 ```
-/db help              all commands
-/db chat              open chat panel (also auto-opens at computer station)
-/db home             list your homes
-/db sethome main      save a home
-/db town / bandit     quick TP to Outpost / Bandit Camp
-/db daily             claim daily scrap reward
-/db top               server leaderboard
-/db weapon ak47       weapon stats
-/db tc                find nearby tool cupboards
+/db help               all commands
+/db chat               open chat panel (also auto-opens at computer station)
+/db mapintel           AI map/world briefing from your location
+/db route outpost      AI route advice to a target monument/grid
+/db brief              AI summary of current world/server state
+/db wipeprep           AI wipe-start checklist
+/db eventintel         AI guidance for heli/cargo/Bradley style events
+/db report name reason report bad actors
+/db reports            staff report queue
+/db modreview name     AI moderation review for a player
 ```
 
 ---
@@ -295,6 +309,13 @@ Full config is written to `oxide/config/RustDuckBot.json` on first load.
 | `MaxPlayerNotes` | `20` | Max notes per player (mod+) |
 | `EnableReportSystem` | `true` | Enable `/db report` command |
 | `ReportCooldownMinutes` | `5` | Minutes between reports |
+| `EnableAIModeration` | `true` | Enable `/db modreview` AI moderation analysis |
+| `EnableAutoModeration` | `false` | Allow automatic kick/ban actions from repeated suspicious reports |
+| `AutoModerationReportThreshold` | `3` | Minimum repeated reports before auto-moderation evaluates |
+| `AutoModerationKickThreshold` | `4` | Repeated report count that can trigger auto-kick |
+| `AutoModerationBanThreshold` | `6` | Repeated report count that can trigger auto-ban when severity is high |
+| `AutoModerationWindowMinutes` | `30` | Sliding window for repeated-report evaluation |
+| `AutoModerationBanDuration` | `"1d"` | Ban duration used by auto-ban logic |
 | `AFKTimeoutMinutes` | `10` | Minutes before AFK flag |
 | `AFKKickMinutes` | `30` | Minutes before auto-kick |
 | `AutoKickAFK` | `true` | Enable AFK auto-kick |
