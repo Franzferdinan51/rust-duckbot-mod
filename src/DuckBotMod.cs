@@ -192,6 +192,10 @@ namespace Oxide.Plugins
         // AFK / Timers
         private Timer _afkCheckTimer;
         private Timer _autoSaveTimer;
+        private Timer _heartbeatTimer;
+        private Timer _automationTimer;
+        private Timer _decayTimer;
+        private Timer _radarTimer;
 
         // Data persistence
         private DuckBotData _saveData;
@@ -1116,8 +1120,13 @@ namespace Oxide.Plugins
                 ScanVendingMachines();
 
                 // Heartbeat every 30s
-                // Timers disabled - Oxide.Plugins.Timer unavailable in compiler
-                // _heartbeatTimer, _automationTimer, _decayTimer, _radarTimer, _afkCheckTimer, _autoSaveTimer
+                _heartbeatTimer = timer.Every(30f, () => HeartbeatCallback(null));
+
+                // Automation every 60s
+                _automationTimer = timer.Every(60f, () => AutomationCallback(null));
+
+                // Decay check every 5 min
+                _decayTimer = timer.Every(300f, () => DecayCheckCallback(null));
 
                 // Load persisted data
                 LoadData();
@@ -4841,6 +4850,8 @@ namespace Oxide.Plugins
                 time = DateTime.Now.ToString("o"),
                 playerCount = players.Count,
                 players = playerList,
+                fps = Math.Round(1.0f / Time.deltaTime, 1),
+                uptime = $"{Time.realtimeSinceStartup / 3600.0:F1}h",
                 mcpConnected = _mcpClient?.IsConnected == true,
                 rconConnected = _rconClient?.IsConnected == true
             });
