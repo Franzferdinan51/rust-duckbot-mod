@@ -3162,7 +3162,7 @@ namespace Oxide.Plugins
                     case "rp": return $"{session.RP} RP";
                     case "kd": return session.Deaths > 0 ? $"{(session.Kills / (float)session.Deaths):F2} K/D" : $"{session.Kills} kills, 0 deaths";
                     case "alerts": return $"{_activeAlerts.Count(a => !a.Acknowledged)} active alerts";
-                    case "events": return _activeAdminEvents.Count > 0 ? string.Join(", ", _activeAdminEvents.Select(e => $"{e.Key}({e.Value.Participants.Count}p)") : "no active events";
+                    case "events": return _activeAdminEvents.Count > 0 ? string.Join(", ", _activeAdminEvents.Select(e => $"{e.Key}({e.Value.Participants.Count}p)")) : "no active events";
                     case "listings": return $"{_shopListings.Count(l => l.Available)} shop listings";
                     case "time": return GetGameTime();
                     case "weather": return GetWeather();
