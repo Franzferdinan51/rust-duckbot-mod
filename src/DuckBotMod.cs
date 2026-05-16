@@ -53,7 +53,7 @@ namespace Oxide.Plugins
             public int DecayAlertHoursBefore = 24;
             public string[] AdminSteamIds = Array.Empty<string>();
             public bool EnableWebSocketRCON = true;
-            public string RCONPassword = "5150";
+            public string RCONPassword = "Swk$50y5fLu6";
             public int RCONPort = 28016;
             public string[] AllowedRCONCommands = new[] { "status", "serverinfo", "player.list", "players.online", "server.hostname", "server.seed", "server.worldsize", "server.pve", "global.status", "kick", "ban", "banid", "unban", "say", "global.say", "inventory.give", "teleport", "teleport2me", "weather", "time", "save", "gc.collect", "status.gpu", "status.ram" };
             public bool EnableGridMap = true;

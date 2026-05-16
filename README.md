@@ -462,7 +462,7 @@ Full config is written to `oxide/config/RustDuckBot.json` on first load.
 | `DecayAlertHoursBefore` | `24` | Hours before decay to warn |
 | `EnableWebSocketRCON` | `true` | Allow plugin to connect to Rust WebRCON |
 | `RCONPort` | `28016` | Rust WebRCON port |
-| `RCONPassword` | `5150` | Must match `+rcon.password` in server.cfg |
+| `RCONPassword` | _(empty)_ | Must match `+rcon.password` in server.cfg. Default matches live server. |
 | `AllowedRCONCommands` | safe list | First-word allowlist for AI/MCP RCON commands |
 
 ---
