@@ -2,34 +2,40 @@
 
 > **v1.4.5** — AI-powered in-game terminal for Rust. Runs with or without an AI agent.
 
-**✅ Loaded and working** — `RustDuckBot v1.4.5` is running on the live server with built-in kit grants, LM Studio active, MCP/RCON enhancements, AI map/world tools, and moderation/report workflow.
+**✅ Loaded and working** — `RustDuckBot v1.4.5` is running on the live server with built-in kit grants, LM Studio active, MCP/RCON enhancements, AI map/world tools, moderation/report workflow, VIP economy, admin events, and AI central brain.
 
 **📦 Built-in kits** — `/db kit starter`, `/db kit pvp`, `/db kit building`, `/db kit mini`, `/db kit scrap`, `/db kit admin` all grant items directly through RustDuckBot — no external Kits plugin required.
 
-**🤖 LM Studio active** — set `"AgentProvider": "lmstudio"` in `RustDuckBot.json` and point at your local LM Studio instance.
+**🤖 AI Central Brain** — the AI has full access to live server data (players, alerts, reports, events, chat, activity, shop), can execute actions via `[DB:command]` and `[RCON:command]` syntax, and has an 8-second timeout to prevent server blocking.
 
-**⚠️ Hooks partially restored** — most game hooks are working after fixing Oxide.Compiler type incompatibilities (`CCTVRCamera`, `ComputerStation`, `DamageType`, `BaseEntity.IsActive()`, etc.). Some hooks may still be limited by this Rust/Oxide build. `/db help` lists all available commands.
+**🎰 VIP Economy + Events** — VIP bonus multiplier (1.5x) on daily/killstreak rewards; `/db event` (mod+) for coinflip, jackpot, scavenger, dropparty with AI narration; `/db guess` number game; `/db lucky` (VIP+) lucky blocks.
 
-RustDuckBot turns Rust's Computer Station into an interactive AI terminal. Every player gets 13 teleport commands, full moderation tools, AI chat (`/db ask`), and 176+ total commands via `/db`. Powered by DuckBot MCP, LM Studio, OpenAI, Claude, or OpenRouter.
+**🔐 Role system** — auth level 2+ (ownerid) = admin, auth level 1 (moderatorid) = mod, falls back to Oxide permissions. Admins access everything, mods access mod+VIP+user commands.
+
+**⚠️ Hooks partially restored** — most game hooks are working after fixing Oxide.Compiler type incompatibilities. Some hooks may still be limited by this Rust/Oxide build. `/db help` lists all available commands across 8 pages.
+
+RustDuckBot turns Rust's Computer Station into an interactive AI terminal. Every player gets teleport commands, full moderation tools, AI chat (`/db ask`), and 176+ total commands via `/db`. Powered by DuckBot MCP, LM Studio, OpenAI, Claude, OpenRouter, or MiniMax.
 
 **WindowsGSM is the primary supported host path.**
 
 ---
 
-## What's New in v1.4.x
+## What's New in v1.4.5
 
-- **✅ Built-in kit grants** — `/db kit <name>` grants items directly without a separate Kits plugin. Kits: starter, pvp, building, mini, scrap, admin. Each has permission tiers, cooldowns, and daily-use limits.
-- **✅ Hooks restored** — game hooks re-enabled after fixing Oxide.Compiler incompatibilities (`CCTVRCamera`, `ComputerStation`, `DamageType`, `BaseEntity.IsActive()`, `BasePlayer.IsConnected`, `BaseEntity.OwnerID`, etc.). CCTV, security, raid/decay alerts, and player tracking work again.
-- **🤖 6 AI backends** — DuckBot MCP, LM Studio (local), OpenAI, Anthropic/Claude, OpenRouter, MiniMax
-- **💬 Discord + Telegram notifications** — join/leave, deaths, raids, event broadcasts, AI moderation alerts (AI-narrated before posting)
-- **🛒 Player-to-player shop** — list items for scrap, buy/sell, scrap↔RP exchange
-- **📊 Stats + leaderboard** — kills, activity, events won tracked via MCP activity log
-- **🖥 Computer Station UI** — CUI overlay for players at Computer Stations
-- **🛰 Full teleport system** — 13 teleport commands including tpr/tpa request flow, sethome (5 per player), town, bandit, back, random TP, and coordinates
-- **🗺 AI map/world tools** — `/db mapintel`, `/db route <target>`, `/db brief`, `/db wipeprep`, `/db eventintel`, `/db teamintel` use live grid, monument, marker, and server context.
-- **🛡 Moderation workflow** — `/db report`, `/db reports`, `/db modreview` with AI review support and optional auto-kick/auto-ban thresholds (now enabled by default).
-- **🎰 VIP Economy + Admin Events** — VIP bonus multiplier (1.5x) on daily/killstreak rewards; `/db event` (mod+) for coinflip, jackpot, scavenger, dropparty with AI narration; `/db guess` number game; `/db lucky` (VIP+) lucky blocks with tiered loot.
-- **🔐 Enhanced MCP/RCON** — read-only RCON query/history, command catalog, bridge status, server info, player positions, monument info, map overview, route advice, moderation context.
+- **🧠 AI Central Brain** — AI receives live server data (players, alerts, reports, events, chat, activity, shop) and can execute actions via `[DB:command]` and `[RCON:command]` syntax. 8-second timeout prevents server crashes.
+- **📡 Expanded Heartbeat** — every 30s sends full server state to MCP: alerts, reports, events, activity, chat, markers, shop listings, camera/base/group counts.
+- **📄 8-Page Help System** — `/db help 1-8` with 13 lines per page. Role-gated: only shows commands your role can access.
+- **🔐 Auth Level Role System** — `ownerid` = admin, `moderatorid` = mod, falls back to Oxide permissions. Role refreshes on every access.
+- **⏱ AFK Movement Detection** — tracks actual player position changes, not just command usage. 8-second AI timeout prevents server blocking.
+- **🎯 Bug Fixes** — TPR timer (was 1000x too long), group leave (was destroying entire group), monument detection (was using dummy data), missing timers (AFK/auto-save/radar now scheduled), RP tracking added.
+- **🤖 6 AI backends** — DuckBot MCP, LM Studio, OpenAI, Anthropic/Claude, OpenRouter, MiniMax
+- **💬 Discord + Telegram notifications** — join/leave, deaths, raids, events, AI moderation (AI-narrated)
+- **🛒 Player shop** — list items for scrap, buy/sell, scrap↔RP exchange
+- **📊 Stats + leaderboard** — kills, activity, events won via MCP
+- **🗺 AI map/world tools** — `/db mapintel`, `/db route`, `/db brief`, `/db wipeprep`, `/db eventintel`, `/db teamintel`
+- **🛡 Moderation** — `/db report`, `/db reports`, `/db modreview` with auto-kick/auto-ban
+- **🎰 VIP Economy + Events** — VIP 1.5x multiplier, `/db event` (mod+), `/db guess`, `/db lucky`
+- **🔐 MCP/RCON** — read-only query/history, command catalog, bridge status, player stats, leaderboard, shop listings
 
 ---
 
@@ -101,7 +107,22 @@ If LM Studio has API-key mode enabled, set `LMStudioApiKey`. Otherwise leave it 
 - Auto-refreshes after every AI response
 - `/db chat` command opens the panel
 
-### 🤖 Flexible AI — 5 Backends
+### 🤖 AI Central Brain
+
+The AI is the operational center of RustDuckBot. Every AI call receives:
+- Server name, seed, world size, PvE mode, FPS, uptime
+- All online players with grid positions
+- Active alerts, recent reports, active events
+- Recent server chat, activity log, shop listings
+- Your health, scrap, RP, K/D, position, nearest monument
+
+The AI can execute actions automatically using `[DB:command]` syntax:
+- `[DB:players]`, `[DB:fps]`, `[DB:grid]`, `[DB:monument]`, `[DB:health]`, `[DB:scrap]`, `[DB:alerts]`, `[DB:events]`, `[DB:time]`, `[DB:weather]`
+- `[RCON:command]` — execute RCON commands (admin only)
+
+All AI calls have an **8-second timeout** to prevent server blocking.
+
+### 🤖 6 AI Backends
 
 | Provider | Config needed | Notes |
 |---|---|---|
@@ -125,8 +146,8 @@ Any interchangeable MCP-capable agent can use the tool surface. Regular player f
 | Kits | `rust_list_kits`, `rust_give_kit` |
 | Fun/Guidance | `rust_roll_dice`, `rust_8ball`, `rust_player_tip` |
 | Economy/Events | `rust_economy_status`, `rust_vip_bonus_info`, `rust_lucky_block_prizes`, `rust_guess_game_status`, `rust_admin_event_create`, `rust_admin_event_list`, `rust_admin_event_cancel` |
+| Player Data | `rust_get_player_stats`, `rust_leaderboard`, `rust_shop_listings` |
 | MCP Resources | `rustduckbot://map/overview`, `rustduckbot://cameras`, `rustduckbot://players`, `rustduckbot://monuments`, `rustduckbot://events`, `rustduckbot://economy`, `rustduckbot://leaderboard`, `rustduckbot://server/status`, `rustduckbot://alerts`, `rustduckbot://rcon/catalog`, `rustduckbot://rcon/history`, `rustduckbot://activity`, `rustduckbot://automation` |
-| **Player Data** | `rust_get_player_stats`, `rust_leaderboard`, `rust_shop_listings` |
 | Map/World | `rust_map_overview`, `rust_get_monument_info`, `rust_route_advice`, `rust_monument_advice_context`, `rust_list_map_markers`, `rust_map_marker_catalog`, `rust_add_map_marker` |
 | Moderation | `rust_chat_moderation_context`, `rust_kick_player`, `rust_ban_player` |
 | Admin/RCON | `rust_rcon_command_catalog`, `rust_rcon_query`, `rust_rcon_history`, `rust_admin_command`, `rust_rcon_command` |
@@ -135,9 +156,11 @@ Any interchangeable MCP-capable agent can use the tool surface. Regular player f
 
 ## All Commands (`/db <command>`)
 
+Help is paginated across 8 pages (`/db help 1` through `/db help 8`), 13 lines each. Only shows commands your role can access.
+
 | Category | Commands |
 |---|---|
-| **Help** | `help`, `terminal`, `info`, `whoami`, `credits`, `changelog`, `version`, `h` |
+| **Help** | `help <1-8>`, `terminal`, `info`, `whoami`, `credits`, `changelog`, `version`, `h` |
 | **CCTV** | `cameras`, `view`, `control`, `ptz`, `recordings` |
 | **Security** | `security`, `alerts`, `ack`, `access`, `scan`, `threat`, `lockdown`, `sos` |
 | **Base** | `base`, `doors`, `door`, `lights`, `light`, `turrets`, `turret`, `decay`, `upkeep`, `auth`, `authorize` |
@@ -148,79 +171,71 @@ Any interchangeable MCP-capable agent can use the tool surface. Regular player f
 | **Server Control** | `pve on|off` (admin), `lockdown start|stop|status`, `admin <rcon_cmd>` |
 | **Admin Tools** | `broadcast <msg>` (admin), `wipekits` (admin), `backup` (admin), `settings` |
 | **Events/Games** | `event start coinflip|jackpot|scavenger|dropparty [args]` (mod+), `event list|join`, `guess join <bet>`, `guess <number>`, `lucky` (VIP+) |
-| **Economy/Shop** | `daily`, `shop list|add|buy|remove|exchange` (scrap↔RP), `exchange scrap|rp <amount>` |
-| **AI Games** | `roll <max>`, `flip`, `8ball <question>`, `rps rock|paper|scissors`, `joke`, `fortune`, `slots` |
-| **Intel / Map** | `players`, `player <name>`, `track <name>`, `history`, `leaderboard`, `stats`, `radar`, `loot`, `map`, `grid`, `mapintel`, `route <target>`, `markers`, `mark`, `near`, `deaths`, `kills`, `kd`, `death [player]`, `killer [player]`, `weapon <name>`, `compare <item1> <item2>` |
-| **AI World** | `ask <msg>`, `brief`, `wipeprep`, `eventintel`, `teamintel`, `chat` (opens CUI panel), `history` |
+| **Economy/Shop** | `daily`, `shop`, `sell <item> <price>`, `buy <item>`, `listings`, `price <item>`, `exchange scrap|rp <amount>` |
+| **AI Games** | `roll <max>`, `flip`, `8ball <question>`, `rps rock|paper|scissors`, `joke`, `fortune`, `slots`, `quote` |
+| **Intel / Map** | `players`, `player <name>`, `track <name>`, `history`, `leaderboard`, `stats`, `radar`, `loot`, `map`, `grid`, `mapintel`, `route <target>`, `markers`, `mark`, `near` |
+| **AI Brain** | `ask <msg>`, `brief`, `wipeprep`, `eventintel`, `teamintel`, `analyze`, `recommend`, `search <query>` |
+| **Groups** | `group create <name>`, `group invite <player>`, `group leave` |
 
 ---
 
 ## In-Game Role Separation
 
+Roles are determined by: **auth level** (ownerid/moderatorid) first, then **Oxide permissions** as fallback. Role refreshes on every command use.
+
 ### Regular User
 Regular users get gameplay help and convenience, but **no staff powers**.
 
 Examples:
-- `/db ask <msg>`
-- `/db chat`
+- `/db ask <msg>` — AI chat with full server context
 - `/db report <player> <reason>`
-- `/db mapintel`
-- `/db route <target>`
-- `/db brief`
-- `/db wipeprep`
-- `/db eventintel`
-- `/db players`, `/db player <name>`, `/db history`, `/db stats`
-- `/db kits`, `/db kit starter`
-- `/db time`, `/db weather`, `/db monuments`, `/db uptime`
+- `/db mapintel`, `/db route <target>`, `/db brief`, `/db wipeprep`
+- `/db players`, `/db player <name>`, `/db stats`, `/db radar`
+- `/db kits`, `/db kit starter`, `/db daily`
+- `/db roll`, `/db flip`, `/db 8ball`, `/db joke`, `/db fortune`, `/db slots`
+- `/db guess join <bet>` — number guessing game
+- `/db shop`, `/db sell`, `/db buy`, `/db price`, `/db exchange`
 
-### VIP
-VIP is for supporters and convenience perks — **not moderation/admin authority**.
+### VIP (Supporter Perks)
+VIP is for supporters — **not moderation/admin authority**. Gets everything a user gets, plus:
 
-VIP perks are things like:
-- extra teleport convenience where your permission config allows it (`tpr`, `tpa`, `home`, `town`, `bandit`, etc.)
-- supporter-level AI/intel convenience such as `/db teamintel`
-- daily/economy/intel perks where enabled
-- quality-of-life features that do not punish, ban, kick, lock, or administratively control other players/server state
+- `/db door <id> lock/unlock` — control doors
+- `/db light <id> on/off` — control lights
+- `/db time`, `/db weather`, `/db monuments`
+- `/db loot <type>` — loot locations
+- `/db teamintel` — AI team briefing
+- `/db lucky` — lucky block spin (tiered loot)
+- VIP bonus multiplier (1.5x) on daily rewards and killstreaks
 
-VIPs **do not** get:
-- kick
-- ban
-- mute
-- freeze
-- respawn others
-- admin RCON
-- automation management
-- lockdown
-- door/light/authorize staff-style controls
+VIPs **do not** get: kick, ban, mute, freeze, admin RCON, lockdown, spawn, give
 
 ### Mod
-Mods are the first real staff tier. They can investigate and intervene, but do not get the full destructive admin toolset.
+Mods are the first real staff tier. Gets everything VIP gets, plus:
 
-Mod commands include:
-- `/db reports`
-- `/db modreview <player>`
 - `/db kick <player> [reason]`
-- `/db mute <player>` / `/db unmute <player>` / `/db mutelist`
+- `/db mute <player>` / `/db unmute <player>`
 - `/db freeze <player>`
-- `/db respawn <player>`
+- `/db reports` — staff report queue
+- `/db modreview <player>` — AI moderation review
+- `/db respawn <player>`, `/db slay <player>`
 - `/db notes <player> ...`
-- `/db adminmsg <player> <msg>`
-- `/db automation` / `/db rules` / `/db rule ...`
+- `/db event start coinflip|jackpot|scavenger|dropparty` — server events
+- `/db event list|join`
 - `/db door ...`, `/db light ...`, `/db authorize ...`
 
 ### Admin
-Admins get the critical/high-impact commands.
+Admins get **everything** — all commands across all roles, plus:
 
-Admin commands include:
-- `/db admin <rcon_command>`
-- `/db ban <player> <reason> [duration]`
-- `/db unban <steamid>`
-- `/db heal <player>`
-- `/db give <player> <item> <qty>`
-- `/db tp <from> <to>`
-- `/db spawn <item> [qty]`
+- `/db admin <rcon_command>` — run any RCON command
+- `/db ban <player> <reason>`, `/db unban <steamid>`
+- `/db heal <player>`, `/db give <player> <item> <qty>`
+- `/db tp <from> <to>`, `/db spawn <item> [qty]`
+- `/db pve on|off` — toggle PvE mode
+- `/db broadcast <msg>` — server-wide broadcast
+- `/db wipekits` — reset all kit cooldowns
+- `/db backup` — trigger server save/backup
 - `/db lockdown start|stop|status`
-- other high-impact server/state changing operations
+- `/db settings` — server settings
 
 
 ### 1. Copy the plugins
@@ -447,7 +462,7 @@ Full config is written to `oxide/config/RustDuckBot.json` on first load.
 | `DecayAlertHoursBefore` | `24` | Hours before decay to warn |
 | `EnableWebSocketRCON` | `true` | Allow plugin to connect to Rust WebRCON |
 | `RCONPort` | `28016` | Rust WebRCON port |
-| `RCONPassword` | _(empty)_ | Must match `+rcon.password` |
+| `RCONPassword` | `5150` | Must match `+rcon.password` in server.cfg |
 | `AllowedRCONCommands` | safe list | First-word allowlist for AI/MCP RCON commands |
 
 ---
@@ -463,15 +478,16 @@ Full config is written to `oxide/config/RustDuckBot.json` on first load.
 | `5d3a6b4` | **v1.3.3** | 13 teleport commands + warmup + home system + back + coords |
 | `d9fb378` | **v1.4.0** | 30 new commands: moderation, economy, combat intel, building, notifications (176+ total commands) |
 | `7fd7696` | **v1.4.1** | WindowsGSM `/db` load-path fixes, AI kits, RCON guardrails, dice/8-ball/tips MCP tools |
-| `current` | **v1.4.5** | Fully-qualified Rust plugin base class, shim dynamic lookup for RustDuckBot/DuckBotMod names, emergency `/db` shim plugin |
+| `1845eb1` | **v1.4.5** | AI central brain with action execution, 8-page help, auth level roles, expanded heartbeat, VIP economy, admin events, 8s AI timeout, 25+ bug fixes |
 
 ---
 
 ## File Structure
 ```
-src/DuckBotMod.cs              # Oxide/uMod Rust plugin (C#, 6,000+ lines, 176+ commands)
+src/DuckBotMod.cs              # Oxide/uMod Rust plugin (C#, 7,500+ lines, 176+ commands)
 src/DuckBotCommandShim.cs      # Tiny emergency /db + /duckbot shim if the main plugin fails to load
 mcp/server/src/index.ts        # MCP server + WebSocket bridge (TypeScript)
+mcp/config.json                # MCP server configuration
 mcp/test/index.test.mjs        # MCP behavior tests
 skills/rust-duckbot/SKILL.md   # Agent-facing skill docs
 docs/
