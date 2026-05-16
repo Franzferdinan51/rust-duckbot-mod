@@ -5815,7 +5815,7 @@ namespace Oxide.Plugins
             _knownOnlinePlayers = onlineNow;
 
             // Collect detailed server state for heartbeat
-            var activeAlerts = _activeAlerts.Where(a => !a.Acknowledged).Select(a => new { id = a.Id, severity = a.Severity, title = a.Title, message = a.Message, time = a.CreatedAt.ToString("o") }).ToList();
+            var activeAlerts = _activeAlerts.Where(a => !a.Acknowledged).Select(a => new { id = a.Id, severity = a.Severity, title = a.Title, message = a.Message, time = a.Time.ToString("o") }).ToList();
             var recentReports = _activityLog.Where(a => a.Category == "moderation" && a.Action == "Report").Take(10).Select(r => new { details = r.Details, player = r.PlayerName, time = r.Time.ToString("o") }).ToList();
             var activeEvents = _activeAdminEvents.Select(e => new { type = e.Key, host = e.Value.HostName, players = e.Value.Participants.Count, elapsed = (int)(DateTime.Now - e.Value.StartTime).TotalSeconds, duration = e.Value.DurationSeconds }).ToList();
             var recentActivity = _activityLog.Take(15).Select(a => new { category = a.Category, action = a.Action, details = a.Details, player = a.PlayerName, time = a.Time.ToString("o") }).ToList();
