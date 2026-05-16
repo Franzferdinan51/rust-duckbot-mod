@@ -1258,7 +1258,8 @@ export async function handleToolCall(
       const filter = optionalString(args, 'filter', '');
       // Shop listings are maintained by the Rust plugin; reflect recent shop activity from the log
       const shopActivity = state.activity.filter(e => e.category === 'economy' && (e.action === 'shop_add' || e.action === 'shop_buy'));
-      const listings = shopActivity.slice(-20).map(e => ({ action: e.action, details: e.details, playerId: e.playerId, time: e.time }));
+      const filtered = filter ? shopActivity.filter(e => e.details.toLowerCase().includes(filter.toLowerCase())) : shopActivity;
+      const listings = filtered.slice(-20).map(e => ({ action: e.action, details: e.details, playerId: e.playerId, time: e.time }));
       return jsonResult({ listings, count: listings.length, active_count: 0, note: 'Live shop listings (item name, price, seller) are maintained by the Rust plugin. Use /db shop list in-game to see them. This shows recent shop activity.' });
     }
 

@@ -2555,7 +2555,7 @@ namespace Oxide.Plugins
 
         private void ControlDoor(BasePlayer player, PlayerSession session, string args)
         {
-            if (!HasRoleOrHigher(session.Role, "mod")) { PrintToChat(player, "<color=#FF4444>Mod+ required</color>"); return; }
+            if (!HasRoleOrHigher(session.Role, "vip")) { PrintToChat(player, "<color=#FF4444>VIP+ required</color>"); return; }
 
             var parts = args.Split(new[] { ' ' }, 2);
             if (parts.Length < 2) { PrintToChat(player, "Usage: /db door <lock_id|position> lock/unlock/open/close"); return; }
@@ -2595,7 +2595,7 @@ namespace Oxide.Plugins
 
         private void ControlLight(BasePlayer player, PlayerSession session, string args)
         {
-            if (!HasRoleOrHigher(session.Role, "mod")) { PrintToChat(player, "<color=#FF4444>Mod+ required</color>"); return; }
+            if (!HasRoleOrHigher(session.Role, "vip")) { PrintToChat(player, "<color=#FF4444>VIP+ required</color>"); return; }
 
             var parts = args.Split(new[] { ' ' }, 2);
             if (parts.Length < 2) { PrintToChat(player, "Usage: /db light <id> on/off/toggle"); return; }
@@ -5420,7 +5420,7 @@ namespace Oxide.Plugins
                 Location = location
             };
             _activeAlerts.Add(alert);
-            _mcpClient?.SendMessage(new { type = "alert", alertId = alert.Id, title, message, severity });
+            _mcpClient?.SendMessage(new { type = "alert", alertId = alert.Id, title, message, severity, alertType = type });
 
             if (_config.EnableSmartAlerts && location.HasValue)
             {
