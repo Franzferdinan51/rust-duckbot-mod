@@ -15,7 +15,7 @@ import {
 import { WebSocket, WebSocketServer } from 'ws';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const VERSION = '1.3.0';
+const VERSION = '1.4.5';
 
 type Role = 'user' | 'vip' | 'mod' | 'admin';
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -1563,6 +1563,7 @@ function normalizePlayer(raw: JsonObject): PlayerState {
     currentCamera: valueAsString(raw['currentCamera'] ?? raw['current_camera'], undefined as unknown as string),
     online: raw['online'] !== false,
     position: valueAsString(raw['position'], undefined as unknown as string),
+    monument: valueAsString(raw['nearestMonument'] ?? raw['monument'], undefined as unknown as string),
   };
 }
 
@@ -1632,7 +1633,7 @@ export function handleRustMessage(raw: JsonObject, state: DuckBotState = default
       const id = valueAsString(raw['playerId'] ?? raw['player_id']);
       const player = findPlayer(state, id);
       if (player) player.online = false;
-      recordActivity(state, 'system', 'player_left', `${valueAsString(raw['playerName'] ?? raw['player_name'], id)} left`, id, undefined, config.maxHistory);
+      recordActivity(state, 'system', 'player_left', `${valueAsString(raw['playerName'] ?? raw['player_name'] ?? raw['name'], id)} left`, id, undefined, config.maxHistory);
       break;
     }
 
@@ -1708,6 +1709,7 @@ export function handleRustMessage(raw: JsonObject, state: DuckBotState = default
 
     case 'server_status': {
       state.server = {
+        ...state.server,
         uptime: valueAsString(raw['uptime'], state.server.uptime),
         fps: valueAsNumber(raw['fps'], state.server.fps),
         players: valueAsNumber(raw['players'] ?? raw['playerCount'], state.players.size),
@@ -1795,6 +1797,8 @@ export function createMcpServer(state: DuckBotState, config: ServerConfig): Serv
       { uri: 'rustduckbot://events', name: 'Recent server events and loot games', mimeType: 'application/json' },
       { uri: 'rustduckbot://economy', name: 'Economy overview, VIP bonuses, event history', mimeType: 'application/json' },
       { uri: 'rustduckbot://leaderboard', name: 'Player leaderboards by kills, events, activity', mimeType: 'application/json' },
+      { uri: 'rustduckbot://server/status', name: 'Live server status snapshot', mimeType: 'application/json' },
+      { uri: 'rustduckbot://alerts', name: 'Active server alerts', mimeType: 'application/json' },
     ],
   }));
 

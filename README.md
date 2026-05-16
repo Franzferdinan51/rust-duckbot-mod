@@ -125,6 +125,7 @@ Any interchangeable MCP-capable agent can use the tool surface. Regular player f
 | Kits | `rust_list_kits`, `rust_give_kit` |
 | Fun/Guidance | `rust_roll_dice`, `rust_8ball`, `rust_player_tip` |
 | Economy/Events | `rust_economy_status`, `rust_vip_bonus_info`, `rust_lucky_block_prizes`, `rust_guess_game_status`, `rust_admin_event_create`, `rust_admin_event_list`, `rust_admin_event_cancel` |
+| MCP Resources | `rustduckbot://map/overview`, `rustduckbot://cameras`, `rustduckbot://players`, `rustduckbot://monuments`, `rustduckbot://events`, `rustduckbot://economy`, `rustduckbot://leaderboard`, `rustduckbot://server/status`, `rustduckbot://alerts`, `rustduckbot://rcon/catalog`, `rustduckbot://rcon/history`, `rustduckbot://activity`, `rustduckbot://automation` |
 | **Player Data** | `rust_get_player_stats`, `rust_leaderboard`, `rust_shop_listings` |
 | Map/World | `rust_map_overview`, `rust_get_monument_info`, `rust_route_advice`, `rust_monument_advice_context`, `rust_list_map_markers`, `rust_map_marker_catalog`, `rust_add_map_marker` |
 | Moderation | `rust_chat_moderation_context`, `rust_kick_player`, `rust_ban_player` |
@@ -377,6 +378,11 @@ Full config is written to `oxide/config/RustDuckBot.json` on first load.
 | `EnableTelegram` | `false` | Enable Telegram bot notifications |
 | `TelegramBotToken` | _(empty)_ | Telegram bot API token |
 | `TelegramChatId` | _(empty)_ | Telegram chat/channel ID |
+| `TelegramPlayerJoinLeave` | `true` | Notify join/leave events |
+| `TelegramDeaths` | `true` | Notify player deaths |
+| `TelegramRaidAlerts` | `false` | Notify raid events |
+| `TelegramEventBroadcasts` | `true` | Notify server events |
+| `TelegramAIModeration` | `true` | Notify AI moderation actions |
 | `ShopItemListingFee` | `50` | Scrap cost to list an item in `/db shop` |
 | `ShopExchangeRateScrapPerRP` | `10` | Scrap per 1 RP in exchange |
 

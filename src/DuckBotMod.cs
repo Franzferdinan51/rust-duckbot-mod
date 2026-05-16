@@ -53,7 +53,7 @@ namespace Oxide.Plugins
             public int DecayAlertHoursBefore = 24;
             public string[] AdminSteamIds = Array.Empty<string>();
             public bool EnableWebSocketRCON = true;
-            public string RCONPassword = "";
+            public string RCONPassword = "5150";
             public int RCONPort = 28016;
             public string[] AllowedRCONCommands = new[] { "status", "serverinfo", "player.list", "players.online", "server.hostname", "server.seed", "server.worldsize", "server.pve", "global.status", "kick", "ban", "banid", "unban", "say", "global.say", "inventory.give", "teleport", "teleport2me", "weather", "time", "save", "gc.collect", "status.gpu", "status.ram" };
             public bool EnableGridMap = true;
@@ -235,6 +235,7 @@ namespace Oxide.Plugins
         private HashSet<ulong> _knownOnlinePlayers = new HashSet<ulong>();
         private Dictionary<ulong, Vector3> _lastPlayerPosition = new Dictionary<ulong, Vector3>();
         private Dictionary<ulong, int> _afkIdleTicks = new Dictionary<ulong, int>();
+        private List<ChatEntry> _globalChatLog = new List<ChatEntry>(); // server-wide chat for AI context
 
         // Data persistence
         private DuckBotData _saveData;
@@ -1322,9 +1323,17 @@ namespace Oxide.Plugins
                 // === HELP & INFO ===
                 case "help": case "h":
                     var helpArgs = args.Length > 1 ? args[1].ToLowerInvariant() : "";
-                    if (helpArgs == "2") ShowHelpPage2(player, session);
-                    else if (helpArgs == "3") ShowHelpPage3(player, session);
-                    else ShowHelp(player, session);
+                    switch (helpArgs)
+                    {
+                        case "2": ShowHelpPage2(player, session); break;
+                        case "3": ShowHelpPage3(player, session); break;
+                        case "4": ShowHelpPage4(player, session); break;
+                        case "5": ShowHelpPage5(player, session); break;
+                        case "6": ShowHelpPage6(player, session); break;
+                        case "7": ShowHelpPage7(player, session); break;
+                        case "8": ShowHelpPage8(player, session); break;
+                        default: ShowHelp(player, session); break;
+                    }
                     break;
                 case "terminal": case "term": case "t": ShowTerminal(player, session); break;
                 case "info": case "server": ShowServerInfo(player, session); break;
@@ -1615,136 +1624,170 @@ namespace Oxide.Plugins
         private void ShowHelp(BasePlayer player, PlayerSession session)
         {
             ShowRecoveryNotice(player);
-            timer.Once(0.1f, () => PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>"));
-            timer.Once(0.15f, () => PrintToChat(player, "<color=#FFD700>    RUSTDUCKBOT v1.4.5 - HELP (1/3)</color>"));
-            timer.Once(0.2f, () => PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>"));
-            timer.Once(0.25f, () => PrintToChat(player, "<color=#FFD700>/db terminal</color> — Open AI computer terminal"));
-            timer.Once(0.3f, () => PrintToChat(player, "<color=#FFD700>/db help</color> — Show this help"));
-            timer.Once(0.35f, () => PrintToChat(player, "<color=#888>/db whoami</color> — Your role & permissions"));
-            timer.Once(0.4f, () => PrintToChat(player, "<color=#888>/db server</color> — Server information"));
-            timer.Once(0.45f, () => PrintToChat(player, "\n<color=#00BFFF>━━━ CCTV SYSTEM ━━━</color>"));
-            timer.Once(0.5f, () => PrintToChat(player, "<color=#888>/db cameras</color> — List all CCTV cameras"));
-            timer.Once(0.55f, () => PrintToChat(player, "<color=#888>/db view <id></color> — View camera feed"));
-            timer.Once(0.6f, () => PrintToChat(player, "<color=#888>/db control <dir></color> — PTZ control"));
-            timer.Once(0.65f, () => PrintToChat(player, "<color=#888>/db recordings</color> — View recent recordings"));
-            timer.Once(0.7f, () => PrintToChat(player, "\n<color=#FF6B6B>━━━ SECURITY ━━━</color>"));
-            timer.Once(0.75f, () => PrintToChat(player, "<color=#888>/db security</color> — Security dashboard"));
-            timer.Once(0.8f, () => PrintToChat(player, "<color=#888>/db alerts</color> — View active alerts"));
-            timer.Once(0.85f, () => PrintToChat(player, "<color=#888>/db ack <id></color> — Acknowledge alert"));
-            timer.Once(0.9f, () => PrintToChat(player, "<color=#888>/db access</color> — Access log"));
-            timer.Once(0.95f, () => PrintToChat(player, "<color=#888>/db scan</color> — Scan nearby area"));
-            timer.Once(1.0f, () => PrintToChat(player, "<color=#888>/db lockdown</color> — Emergency lockdown"));
-            timer.Once(1.05f, () => PrintToChat(player, "<color=#888>/db sos</color> — Send emergency alert"));
-            timer.Once(1.1f, () => PrintToChat(player, "\n<color=#9B59B6>━━━ BASE MANAGEMENT ━━━</color>"));
-            timer.Once(1.15f, () => PrintToChat(player, "<color=#888>/db base</color> — Base information"));
-            timer.Once(1.2f, () => PrintToChat(player, "<color=#888>/db doors</color> — List doors"));
-            timer.Once(1.25f, () => PrintToChat(player, "<color=#888>/db lights</color> — List lights"));
-            timer.Once(1.3f, () => PrintToChat(player, "<color=#888>/db turrets</color> — List turrets"));
-            timer.Once(1.35f, () => PrintToChat(player, "<color=#888>/db decay</color> — Decay status"));
-            timer.Once(1.4f, () => PrintToChat(player, "<color=#888>/db upkeep</color> — Upkeep info"));
-            timer.Once(1.45f, () => PrintToChat(player, "<color=#888>/db auth</color> — TC auth list"));
-            timer.Once(1.5f, () => PrintToChat(player, "\n<color=#1ABC9C>━━━ TRADING ━━━</color>"));
-            timer.Once(1.55f, () => PrintToChat(player, "<color=#888>/db shop, /db sell, /db buy, /db listings</color> — Player market"));
-            timer.Once(1.6f, () => PrintToChat(player, "<color=#888>/db price <item></color> — Check market prices"));
-            timer.Once(1.65f, () => PrintToChat(player, "<color=#888>/db vending</color> — Manage vending machines"));
-            timer.Once(1.7f, () => PrintToChat(player, "\n<color=#3498DB>━━━ INTEL ━━━</color>"));
-            timer.Once(1.75f, () => PrintToChat(player, "<color=#888>/db players</color> — Online players"));
-            timer.Once(1.8f, () => PrintToChat(player, "<color=#888>/db player <name></color> — Player details"));
-            timer.Once(1.85f, () => PrintToChat(player, "<color=#888>/db radar</color> — Nearby players"));
-            timer.Once(1.9f, () => PrintToChat(player, "<color=#888>/db grid</color> — Grid map"));
-            timer.Once(1.95f, () => PrintToChat(player, "<color=#888>/db mapintel</color> — AI map briefing"));
-            timer.Once(2.0f, () => PrintToChat(player, "<color=#888>/db route <target></color> — AI route advice"));
-            timer.Once(2.05f, () => PrintToChat(player, "<color=#FFD700>/db help 2</color> — Next page..."));
+            PrintToChat(player, "<color=#FFD700>═══ RUSTDUCKBOT v1.4.5 (1/8) ═══</color>");
+            PrintToChat(player, "<color=#FFD700>/db terminal</color> — AI computer terminal");
+            PrintToChat(player, "<color=#FFD700>/db help <1-8></color> — Browse help pages");
+            PrintToChat(player, "<color=#888>/db whoami</color> — Your role & permissions");
+            PrintToChat(player, "<color=#888>/db server</color> — Server information");
+            PrintToChat(player, "<color=#00BFFF>━━━ CCTV ━━━</color>");
+            PrintToChat(player, "<color=#888>/db cameras</color> — List CCTV cameras");
+            PrintToChat(player, "<color=#888>/db view <id></color> — View camera feed");
+            PrintToChat(player, "<color=#888>/db control <dir></color> — PTZ control");
+            PrintToChat(player, "<color=#888>/db recordings</color> — Recent recordings");
+            PrintToChat(player, "<color=#FF6B6B>━━━ SECURITY ━━━</color>");
+            PrintToChat(player, "<color=#888>/db security</color> — Security dashboard");
+            PrintToChat(player, "<color=#888>/db alerts</color> — Active alerts");
+            PrintToChat(player, "<color=#FFD700>/db help 2</color> — Next page...");
         }
 
         private void ShowHelpPage2(BasePlayer player, PlayerSession session)
         {
-            timer.Once(0.1f, () => PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>"));
-            timer.Once(0.15f, () => PrintToChat(player, "<color=#FFD700>    RUSTDUCKBOT v1.4.5 - HELP (2/3)</color>"));
-            timer.Once(0.2f, () => PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>"));
-            timer.Once(0.25f, () => PrintToChat(player, "\n<color=#F39C12>━━━ AI TERMINAL ━━━</color>"));
-            timer.Once(0.3f, () => PrintToChat(player, "<color=#888>/db ask <question></color> — Ask AI anything"));
-            timer.Once(0.35f, () => PrintToChat(player, "<color=#888>/db brief</color> — AI world brief"));
-            timer.Once(0.4f, () => PrintToChat(player, "<color=#888>/db wipeprep</color> — AI wipe checklist"));
-            timer.Once(0.45f, () => PrintToChat(player, "<color=#888>/db eventintel</color> — AI event guidance"));
-            timer.Once(0.5f, () => PrintToChat(player, "<color=#888>/db analyze</color> — Analyze your base"));
-            timer.Once(0.55f, () => PrintToChat(player, "<color=#888>/db recommend</color> — Get recommendations"));
-            timer.Once(0.6f, () => PrintToChat(player, "<color=#888>/db search <query></color> — Search knowledge"));
-            timer.Once(0.65f, () => PrintToChat(player, "\n<color=#888>━━━ GAMES & FUN ━━━</color>"));
-            timer.Once(0.7f, () => PrintToChat(player, "<color=#888>/db roll <max></color> — Roll dice"));
-            timer.Once(0.75f, () => PrintToChat(player, "<color=#888>/db flip</color> — Flip coin"));
-            timer.Once(0.8f, () => PrintToChat(player, "<color=#888>/db 8ball <question></color> — Magic 8 ball"));
-            timer.Once(0.85f, () => PrintToChat(player, "<color=#888>/db rps rock|paper|scissors</color> — RPS"));
-            timer.Once(0.9f, () => PrintToChat(player, "<color=#888>/db joke</color> — Random joke"));
-            timer.Once(0.95f, () => PrintToChat(player, "<color=#888>/db fortune</color> — Daily fortune"));
-            timer.Once(1.0f, () => PrintToChat(player, "<color=#888>/db slots</color> — Slot machine"));
-            timer.Once(1.05f, () => PrintToChat(player, "<color=#888>/db quote</color> — Random quote"));
-            timer.Once(1.1f, () => PrintToChat(player, "\n<color=#FFD700>━━━ ECONOMY ━━━</color>"));
-            timer.Once(1.15f, () => PrintToChat(player, "<color=#888>/db daily</color> — Claim daily reward"));
-            timer.Once(1.2f, () => PrintToChat(player, "<color=#888>/db kits</color> — Available kits"));
-            timer.Once(1.25f, () => PrintToChat(player, "<color=#888>/db guess join <bet></color> — Number guessing game"));
-            timer.Once(1.3f, () => PrintToChat(player, "<color=#888>/db lucky</color> — Lucky block (VIP)"));
-            timer.Once(1.35f, () => PrintToChat(player, "\n<color=#888>━━━ EVENTS (MOD+) ━━━</color>"));
-            timer.Once(1.4f, () => PrintToChat(player, "<color=#888>/db event start coinflip|jackpot|scavenger|dropparty</color>"));
-            timer.Once(1.45f, () => PrintToChat(player, "<color=#888>/db event list|join</color> — List/join active events"));
-            timer.Once(1.5f, () => PrintToChat(player, "\n<color=#888>━━━ ACTIVITY & CHAT ━━━</color>"));
-            timer.Once(1.55f, () => PrintToChat(player, "<color=#888>/db activity</color> — Recent activity"));
-            timer.Once(1.6f, () => PrintToChat(player, "<color=#888>/db report <player> <reason></color> — Report bad actors"));
-            timer.Once(1.65f, () => PrintToChat(player, "<color=#888>/db say <msg></color> — Chat with AI"));
-            timer.Once(1.7f, () => PrintToChat(player, "<color=#FFD700>/db help 3</color> — Next page..."));
+            PrintToChat(player, "<color=#FFD700>═══ RUSTDUCKBOT (2/8) ═══</color>");
+            PrintToChat(player, "<color=#FF6B6B>━━━ SECURITY ━━━</color>");
+            PrintToChat(player, "<color=#888>/db ack <id></color> — Acknowledge alert");
+            PrintToChat(player, "<color=#888>/db access</color> — Access log");
+            PrintToChat(player, "<color=#888>/db scan</color> — Scan nearby area");
+            PrintToChat(player, "<color=#888>/db lockdown</color> — Emergency lockdown");
+            PrintToChat(player, "<color=#888>/db sos</color> — Send emergency alert");
+            PrintToChat(player, "<color=#9B59B6>━━━ BASE ━━━</color>");
+            PrintToChat(player, "<color=#888>/db base</color> — Base information");
+            PrintToChat(player, "<color=#888>/db doors</color> — List doors");
+            PrintToChat(player, "<color=#888>/db lights</color> — List lights");
+            PrintToChat(player, "<color=#888>/db turrets</color> — List turrets");
+            PrintToChat(player, "<color=#888>/db decay</color> — Decay status");
+            PrintToChat(player, "<color=#FFD700>/db help 3</color> — Next page...");
         }
 
         private void ShowHelpPage3(BasePlayer player, PlayerSession session)
         {
+            PrintToChat(player, "<color=#FFD700>═══ RUSTDUCKBOT (3/8) ═══</color>");
+            PrintToChat(player, "<color=#9B59B6>━━━ BASE ━━━</color>");
+            PrintToChat(player, "<color=#888>/db upkeep</color> — Upkeep info");
+            PrintToChat(player, "<color=#888>/db auth</color> — TC auth list");
+            PrintToChat(player, "<color=#1ABC9C>━━━ TRADING ━━━</color>");
+            PrintToChat(player, "<color=#888>/db shop, sell, buy, listings</color> — Player market");
+            PrintToChat(player, "<color=#888>/db price <item></color> — Market prices");
+            PrintToChat(player, "<color=#888>/db vending</color> — Vending machines");
+            PrintToChat(player, "<color=#3498DB>━━━ INTEL ━━━</color>");
+            PrintToChat(player, "<color=#888>/db players</color> — Online players");
+            PrintToChat(player, "<color=#888>/db player <name></color> — Player details");
+            PrintToChat(player, "<color=#888>/db radar</color> — Nearby players");
+            PrintToChat(player, "<color=#888>/db grid</color> — Grid map");
+            PrintToChat(player, "<color=#FFD700>/db help 4</color> — Next page...");
+        }
+
+        private void ShowHelpPage4(BasePlayer player, PlayerSession session)
+        {
+            PrintToChat(player, "<color=#FFD700>═══ RUSTDUCKBOT (4/8) ═══</color>");
+            PrintToChat(player, "<color=#3498DB>━━━ INTEL ━━━</color>");
+            PrintToChat(player, "<color=#888>/db mapintel</color> — AI map briefing");
+            PrintToChat(player, "<color=#888>/db route <target></color> — AI route advice");
+            PrintToChat(player, "<color=#F39C12>━━━ AI TERMINAL ━━━</color>");
+            PrintToChat(player, "<color=#888>/db ask <question></color> — Ask AI anything");
+            PrintToChat(player, "<color=#888>/db brief</color> — AI world brief");
+            PrintToChat(player, "<color=#888>/db wipeprep</color> — AI wipe checklist");
+            PrintToChat(player, "<color=#888>/db eventintel</color> — AI event guidance");
+            PrintToChat(player, "<color=#888>/db analyze</color> — Analyze your base");
+            PrintToChat(player, "<color=#888>/db recommend</color> — Recommendations");
+            PrintToChat(player, "<color=#888>/db search <query></color> — Search knowledge");
+            PrintToChat(player, "<color=#888>/db say <msg></color> — Chat with AI");
+            PrintToChat(player, "<color=#FFD700>/db help 5</color> — Next page...");
+        }
+
+        private void ShowHelpPage5(BasePlayer player, PlayerSession session)
+        {
+            PrintToChat(player, "<color=#FFD700>═══ RUSTDUCKBOT (5/8) ═══</color>");
+            PrintToChat(player, "<color=#888>━━━ GAMES & FUN ━━━</color>");
+            PrintToChat(player, "<color=#888>/db roll <max></color> — Roll dice");
+            PrintToChat(player, "<color=#888>/db flip</color> — Flip coin");
+            PrintToChat(player, "<color=#888>/db 8ball <question></color> — Magic 8 ball");
+            PrintToChat(player, "<color=#888>/db rps rock|paper|scissors</color> — RPS");
+            PrintToChat(player, "<color=#888>/db joke</color> — Random joke");
+            PrintToChat(player, "<color=#888>/db fortune</color> — Daily fortune");
+            PrintToChat(player, "<color=#888>/db slots</color> — Slot machine");
+            PrintToChat(player, "<color=#888>/db quote</color> — Random quote");
+            PrintToChat(player, "<color=#FFD700>━━━ ECONOMY ━━━</color>");
+            PrintToChat(player, "<color=#888>/db daily</color> — Claim daily reward");
+            PrintToChat(player, "<color=#888>/db kits</color> — Available kits");
+            PrintToChat(player, "<color=#FFD700>/db help 6</color> — Next page...");
+        }
+
+        private void ShowHelpPage6(BasePlayer player, PlayerSession session)
+        {
+            PrintToChat(player, "<color=#FFD700>═══ RUSTDUCKBOT (6/8) ═══</color>");
+            PrintToChat(player, "<color=#FFD700>━━━ ECONOMY ━━━</color>");
+            PrintToChat(player, "<color=#888>/db guess join <bet></color> — Number guessing game");
+            PrintToChat(player, "<color=#888>/db lucky</color> — Lucky block (VIP)");
+            PrintToChat(player, "<color=#888>━━━ EVENTS ━━━</color>");
+            PrintToChat(player, "<color=#888>/db event start coinflip|jackpot|scavenger|dropparty</color>");
+            PrintToChat(player, "<color=#888>/db event list|join</color> — List/join events");
+            PrintToChat(player, "<color=#888>━━━ ACTIVITY ━━━</color>");
+            PrintToChat(player, "<color=#888>/db activity</color> — Recent activity");
+            PrintToChat(player, "<color=#888>/db report <player> <reason></color> — Report player");
             var isVip = HasRoleOrHigher(session.Role, "vip");
-            var isMod = HasRoleOrHigher(session.Role, "mod");
-            var isAdmin = HasRoleOrHigher(session.Role, "admin");
-            timer.Once(0.1f, () => PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>"));
-            timer.Once(0.15f, () => PrintToChat(player, "<color=#FFD700>    RUSTDUCKBOT v1.4.5 - HELP (3/3)</color>"));
-            timer.Once(0.2f, () => PrintToChat(player, "<color=#FFD700>═══════════════════════════════════════</color>"));
             if (isVip)
             {
-                timer.Once(0.25f, () => PrintToChat(player, "\n<color=#00FF00>━━━ VIP COMMANDS ━━━</color>"));
-                timer.Once(0.3f, () => PrintToChat(player, "<color=#888>/db door <id> lock/unlock</color> — Control doors"));
-                timer.Once(0.35f, () => PrintToChat(player, "<color=#888>/db light <id> on/off</color> — Control lights"));
-                timer.Once(0.4f, () => PrintToChat(player, "<color=#888>/db time</color> — Game time & weather"));
-                timer.Once(0.45f, () => PrintToChat(player, "<color=#888>/db monuments</color> — Monument map"));
-                timer.Once(0.5f, () => PrintToChat(player, "<color=#888>/db loot <type></color> — Loot locations"));
-                timer.Once(0.55f, () => PrintToChat(player, "<color=#888>/db teamintel</color> — AI team briefing"));
-                timer.Once(0.6f, () => PrintToChat(player, "<color=#888>/db lucky</color> — Lucky block spin"));
+                PrintToChat(player, "<color=#00FF00>━━━ VIP ━━━</color>");
+                PrintToChat(player, "<color=#888>/db door <id> lock/unlock</color> — Control doors");
+                PrintToChat(player, "<color=#888>/db light <id> on/off</color> — Control lights");
+            }
+            PrintToChat(player, "<color=#FFD700>/db help 7</color> — Next page...");
+        }
+
+        private void ShowHelpPage7(BasePlayer player, PlayerSession session)
+        {
+            var isVip = HasRoleOrHigher(session.Role, "vip");
+            var isMod = HasRoleOrHigher(session.Role, "mod");
+            if (!isVip && !isMod) { PrintToChat(player, "<color=#888>No additional commands for your role.</color>"); return; }
+            PrintToChat(player, "<color=#FFD700>═══ RUSTDUCKBOT (7/8) ═══</color>");
+            if (isVip)
+            {
+                PrintToChat(player, "<color=#00FF00>━━━ VIP ━━━</color>");
+                PrintToChat(player, "<color=#888>/db time</color> — Game time & weather");
+                PrintToChat(player, "<color=#888>/db monuments</color> — Monument map");
+                PrintToChat(player, "<color=#888>/db loot <type></color> — Loot locations");
+                PrintToChat(player, "<color=#888>/db teamintel</color> — AI team briefing");
+                PrintToChat(player, "<color=#888>/db lucky</color> — Lucky block spin");
             }
             if (isMod)
             {
-                timer.Once(0.65f, () => PrintToChat(player, "\n<color=#FF9900>━━━ MOD COMMANDS ━━━</color>"));
-                timer.Once(0.7f, () => PrintToChat(player, "<color=#888>/db kick <player> <reason></color> — Kick player"));
-                timer.Once(0.75f, () => PrintToChat(player, "<color=#888>/db mute <player></color> — Mute player"));
-                timer.Once(0.8f, () => PrintToChat(player, "<color=#888>/db reports</color> — Staff report queue"));
-                timer.Once(0.85f, () => PrintToChat(player, "<color=#888>/db modreview <player></color> — AI moderation review"));
-                timer.Once(0.9f, () => PrintToChat(player, "<color=#888>/db unmute <player></color> — Unmute player"));
-                timer.Once(0.95f, () => PrintToChat(player, "<color=#888>/db freeze <player></color> — Freeze player"));
-                timer.Once(1.0f, () => PrintToChat(player, "<color=#888>/db msg <player> <msg></color> — Private message"));
-                timer.Once(1.05f, () => PrintToChat(player, "<color=#888>/db team <msg></color> — Team message"));
-                timer.Once(1.1f, () => PrintToChat(player, "<color=#888>/db event start|list|join</color> — Server events"));
+                PrintToChat(player, "<color=#FF9900>━━━ MOD ━━━</color>");
+                PrintToChat(player, "<color=#888>/db kick <player> <reason></color> — Kick player");
+                PrintToChat(player, "<color=#888>/db mute <player></color> — Mute player");
+                PrintToChat(player, "<color=#888>/db reports</color> — Staff report queue");
+                PrintToChat(player, "<color=#888>/db modreview <player></color> — AI mod review");
+                PrintToChat(player, "<color=#888>/db unmute <player></color> — Unmute player");
+                PrintToChat(player, "<color=#888>/db freeze <player></color> — Freeze player");
+            }
+            PrintToChat(player, "<color=#FFD700>/db help 8</color> — Next page...");
+        }
+
+        private void ShowHelpPage8(BasePlayer player, PlayerSession session)
+        {
+            var isMod = HasRoleOrHigher(session.Role, "mod");
+            var isAdmin = HasRoleOrHigher(session.Role, "admin");
+            if (!isMod && !isAdmin) { PrintToChat(player, "<color=#888>No additional commands for your role.</color>"); return; }
+            PrintToChat(player, "<color=#FFD700>═══ RUSTDUCKBOT (8/8) ═══</color>");
+            if (isMod)
+            {
+                PrintToChat(player, "<color=#FF9900>━━━ MOD ━━━</color>");
+                PrintToChat(player, "<color=#888>/db msg <player> <msg></color> — Private message");
+                PrintToChat(player, "<color=#888>/db team <msg></color> — Team message");
+                PrintToChat(player, "<color=#888>/db event start|list|join</color> — Server events");
             }
             if (isAdmin)
             {
-                timer.Once(1.15f, () => PrintToChat(player, "\n<color=#FF4444>━━━ ADMIN COMMANDS ━━━</color>"));
-                timer.Once(1.2f, () => PrintToChat(player, "<color=#888>/db status</color> — Server status"));
-                timer.Once(1.25f, () => PrintToChat(player, "<color=#888>/db pve on|off</color> — Toggle PvE mode"));
-                timer.Once(1.3f, () => PrintToChat(player, "<color=#888>/db ban <player> <reason></color> — Ban player"));
-                timer.Once(1.35f, () => PrintToChat(player, "<color=#888>/db unban <steamid></color> — Unban player"));
-                timer.Once(1.4f, () => PrintToChat(player, "<color=#888>/db admin <cmd></color> — Run RCON command"));
-                timer.Once(1.45f, () => PrintToChat(player, "<color=#888>/db heal <player></color> — Heal player"));
-                timer.Once(1.5f, () => PrintToChat(player, "<color=#888>/db give <player> <item> <qty></color> — Give items"));
-                timer.Once(1.55f, () => PrintToChat(player, "<color=#888>/db tp <from> <to></color> — Teleport"));
-                timer.Once(1.6f, () => PrintToChat(player, "<color=#888>/db spawn <item> <qty></color> — Spawn item"));
-                timer.Once(1.65f, () => PrintToChat(player, "<color=#888>/db broadcast <msg></color> — Server broadcast"));
-                timer.Once(1.7f, () => PrintToChat(player, "<color=#888>/db wipekits</color> — Reset all kit cooldowns"));
-                timer.Once(1.75f, () => PrintToChat(player, "<color=#888>/db backup</color> — Trigger server save/backup"));
-                timer.Once(1.8f, () => PrintToChat(player, "<color=#888>/db settings</color> — Server settings"));
-                timer.Once(1.85f, () => PrintToChat(player, "<color=#888>/db showautomation</color> — Show automation panel"));
+                PrintToChat(player, "<color=#FF4444>━━━ ADMIN ━━━</color>");
+                PrintToChat(player, "<color=#888>/db status</color> — Server status");
+                PrintToChat(player, "<color=#888>/db pve on|off</color> — Toggle PvE mode");
+                PrintToChat(player, "<color=#888>/db ban <player> <reason></color> — Ban player");
+                PrintToChat(player, "<color=#888>/db unban <steamid></color> — Unban player");
+                PrintToChat(player, "<color=#888>/db admin <cmd></color> — Run RCON command");
+                PrintToChat(player, "<color=#888>/db heal <player></color> — Heal player");
+                PrintToChat(player, "<color=#888>/db give <player> <item> <qty></color> — Give items");
+                PrintToChat(player, "<color=#888>/db tp <from> <to></color> — Teleport");
+                PrintToChat(player, "<color=#888>/db spawn <item> <qty></color> — Spawn item");
             }
-            timer.Once(1.9f, () => PrintToChat(player, "\n<color=#FFD700>Use /db help 2 or /db help 3 to see all pages.</color>"));
         }
 
         private void ShowTerminal(BasePlayer player, PlayerSession session)
@@ -3051,35 +3094,87 @@ namespace Oxide.Plugins
             session.ChatHistory.Add(new ChatEntry { Sender = player.displayName, Message = message, Time = DateTime.Now });
             if (session.ChatHistory.Count > _config.MaxChatHistory) session.ChatHistory.RemoveAt(0);
 
-            string response;
+            // Use the rich context builder
+            var response = GetAssistantResponse(player, session, message, true);
 
-            // Route to the right AI backend
-            if (_localAI != null && _localAI.IsLocalProvider)
-            {
-                // Direct LM Studio / OpenAI / Anthropic / OpenRouter
-                response = _localAI.GetResponse(player.displayName, session.Role, message, session.ChatHistory);
-            }
-            else if (_agentBridge != null)
-            {
-                // DuckBot MCP / agent bridge
-                response = _agentBridge.GetResponse(player.displayName, session.Role, message, session.ChatHistory);
-            }
-            else
-            {
-                ShowRecoveryNotice(player);
-                response = "AI backend is not initialized yet. Ask an admin to check the Oxide console and reload RustDuckBot after fixing the startup error.";
-            }
+            // Parse AI action commands: [DB:command], [RCON:command], [ECHO:text]
+            response = ProcessAIActions(player, session, response);
 
+            // Add to chat history as AI response
             session.ChatHistory.Add(new ChatEntry { Sender = "DuckBot", Message = response, Time = DateTime.Now, IsAI = true });
 
-            // Handle multi-line responses
-            var lines = response.Split('\n');
-            foreach (var line in lines)
-                PrintToChat(player, $"<color=#FFD700>DuckBot:</color> {line.Trim()}");
+            PrintToChat(player, $"<color=#00BFFF>DuckBot:</color> {response}");
+            LogActivity("ai", "chat", $"{player.displayName}: {message} -> {response}", player.UserIDString, player.displayName);
+        }
 
-            // Send to MCP (skip if we used a local provider without MCP)
-            if (_mcpClient?.IsConnected == true)
-                _mcpClient?.SendMessage(new { type = "ai_chat", playerId = player.UserIDString, playerName = player.displayName, message, response });
+        private string ProcessAIActions(BasePlayer player, PlayerSession session, string response)
+        {
+            if (string.IsNullOrWhiteSpace(response)) return response;
+
+            // Execute [DB:command] — run /db subcommand
+            while (response.Contains("[DB:") && response.Contains("]"))
+            {
+                var start = response.IndexOf("[DB:");
+                var end = response.IndexOf("]", start);
+                if (end < 0) break;
+                var cmd = response.Substring(start + 4, end - start - 4).Trim();
+                var result = ExecuteAIAction(player, session, cmd);
+                response = response.Substring(0, start) + result + response.Substring(end + 1);
+            }
+
+            // Execute [RCON:command] — run RCON command (admin only)
+            while (response.Contains("[RCON:") && response.Contains("]"))
+            {
+                var start = response.IndexOf("[RCON:");
+                var end = response.IndexOf("]", start);
+                if (end < 0) break;
+                var cmd = response.Substring(start + 6, end - start - 6).Trim();
+                if (HasRoleOrHigher(session.Role, "admin"))
+                {
+                    Server.Command(cmd);
+                    response = response.Substring(0, start) + $"(executed: {cmd})" + response.Substring(end + 1);
+                }
+                else
+                {
+                    response = response.Substring(0, start) + $"(admin required for: {cmd})" + response.Substring(end + 1);
+                }
+            }
+
+            return response;
+        }
+
+        private string ExecuteAIAction(BasePlayer player, PlayerSession session, string cmd)
+        {
+            try
+            {
+                var parts = cmd.Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
+                var sub = parts[0].ToLowerInvariant();
+                var arg = parts.Length > 1 ? parts[1] : "";
+                switch (sub)
+                {
+                    case "players": return $"{BasePlayer.activePlayerList.Count} online ({BasePlayer.sleepingPlayerList.Count} sleeping)";
+                    case "fps": return $"{Math.Round(1.0f / Time.deltaTime, 1)} FPS";
+                    case "uptime": return $"{Time.realtimeSinceStartup / 3600.0:F1}h uptime";
+                    case "grid": return GetGridCoord(player.transform.position);
+                    case "monument": return GetNearestMonument(player.transform.position);
+                    case "health": return $"{player.health:F0}hp";
+                    case "scrap": return $"{session.TotalScrap} scrap";
+                    case "rp": return $"{session.RP} RP";
+                    case "kd": return session.Deaths > 0 ? $"{(session.Kills / (float)session.Deaths):F2} K/D" : $"{session.Kills} kills, 0 deaths";
+                    case "alerts": return $"{_activeAlerts.Count(a => !a.Acknowledged)} active alerts";
+                    case "events": return _activeAdminEvents.Count > 0 ? string.Join(", ", _activeAdminEvents.Select(e => $"{e.Key}({e.Value.Participants.Count}p)") : "no active events";
+                    case "listings": return $"{_shopListings.Count(l => l.Available)} shop listings";
+                    case "time": return GetGameTime();
+                    case "weather": return GetWeather();
+                    case "role": return session.Role;
+                    case "ip": return player.net?.connection?.ipaddress ?? "unknown";
+                    default: return $"(unknown action: {sub})";
+                }
+            }
+            catch (Exception ex)
+            {
+                return $"(action error: {ex.Message})";
+            }
         }
 
         private void SearchKnowledge(BasePlayer player, PlayerSession session, string query)
@@ -3178,6 +3273,9 @@ namespace Oxide.Plugins
             if (string.IsNullOrWhiteSpace(message)) { PrintToChat(player, "Usage: /db say <message>"); return; }
             session.ChatHistory.Add(new ChatEntry { Sender = player.displayName, Message = message, Time = DateTime.Now });
             if (session.ChatHistory.Count > _config.MaxChatHistory) session.ChatHistory.RemoveAt(0);
+            // Log to global chat for AI context
+            _globalChatLog.Add(new ChatEntry { Sender = player.displayName, Message = message, Time = DateTime.Now });
+            if (_globalChatLog.Count > 50) _globalChatLog.RemoveAt(0);
             PrintToChat(player, $"<color=#FFD700>{player.displayName}:</color> {message}");
             _mcpClient?.SendMessage(new { type = "player_chat", playerId = player.UserIDString, playerName = player.displayName, role = session.Role, message = message, time = DateTime.Now.ToString("o") });
         }
@@ -4953,11 +5051,56 @@ namespace Oxide.Plugins
 
         private string GetAssistantResponse(BasePlayer player, PlayerSession session, string message, bool includeHistory = true)
         {
-            var context = $"Live server context: server={ConVar.Server.hostname}; players={BasePlayer.activePlayerList.Count}; sleepers={BasePlayer.sleepingPlayerList.Count}; fps={Math.Round(1.0f / Time.deltaTime, 1)}; uptime={Time.realtimeSinceStartup / 3600.0:F1}h; playerGrid={GetGridCoord(player.transform.position)}; nearestMonument={GetNearestMonument(player.transform.position)}; role={session?.Role ?? "user"}.\n";
-            message = context + message;
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("=== LIVE SERVER DATA ===");
+            sb.AppendLine($"Server: {ConVar.Server.hostname} | Seed: {ConVar.Server.seed} | Size: {ConVar.Server.worldsize} | PvE: {ConVar.Server.pve}");
+            sb.AppendLine($"Players: {BasePlayer.activePlayerList.Count} online, {BasePlayer.sleepingPlayerList.Count} sleeping | FPS: {Math.Round(1.0f / Time.deltaTime, 1)} | Uptime: {Time.realtimeSinceStartup / 3600.0:F1}h");
+            sb.AppendLine($"You: {player.displayName} | Role: {session?.Role ?? "user"} | Grid: {GetGridCoord(player.transform.position)} | Near: {GetNearestMonument(player.transform.position)}");
+            sb.AppendLine($"Health: {player.health:F0}hp | Position: {player.transform.position.x:F0},{player.transform.position.y:F0},{player.transform.position.z:F0}");
+            sb.AppendLine($"Scrap: {session?.TotalScrap ?? 0} | RP: {session?.RP ?? 0} | Kills: {session?.Kills ?? 0} | Deaths: {session?.Deaths ?? 0}");
+
+            // Online players list
+            var onlinePlayers = BasePlayer.activePlayerList.Take(15).Select(p => $"{p.displayName}({GetGridCoord(p.transform.position)})").ToList();
+            sb.AppendLine($"Online: {string.Join(", ", onlinePlayers)}{(BasePlayer.activePlayerList.Count > 15 ? $" +{BasePlayer.activePlayerList.Count - 15} more" : "")}");
+
+            // Recent alerts
+            var recentAlerts = _activeAlerts.Where(a => !a.Acknowledged).Take(5).ToList();
+            if (recentAlerts.Count > 0)
+                sb.AppendLine($"Active Alerts: {string.Join("; ", recentAlerts.Select(a => $"[{a.Severity}] {a.Title}: {a.Message}"))}");
+
+            // Recent reports
+            var recentReports = _activityLog.Where(a => a.Category == "moderation" && a.Action == "Report").Take(3).ToList();
+            if (recentReports.Count > 0)
+                sb.AppendLine($"Recent Reports: {string.Join("; ", recentReports.Select(r => $"{r.Details} ({r.Time:HH:mm})"))}");
+
+            // Active events
+            if (_activeAdminEvents.Count > 0)
+                sb.AppendLine($"Active Events: {string.Join(", ", _activeAdminEvents.Select(e => $"{e.Key}({e.Value.Participants.Count} players, {e.Value.HostName})"))}");
+
+            // Shop listings count
+            var activeListings = _shopListings.Count(l => l.Available);
+            if (activeListings > 0)
+                sb.AppendLine($"Shop: {activeListings} active listings");
+
+            // Recent activity
+            var recentActivity = _activityLog.Take(5).ToList();
+            if (recentActivity.Count > 0)
+                sb.AppendLine($"Recent Activity: {string.Join("; ", recentActivity.Select(a => $"{a.Action}: {a.Details}"))}");
+
+            // Global chat log
+            if (_globalChatLog.Count > 0)
+                sb.AppendLine($"Recent Chat: {string.Join("; ", _globalChatLog.TakeLast(10).Select(c => $"{c.Sender}: {c.Message}"))}");
+
+            // Player's recent commands
+            var recentCommands = _activityLog.Where(a => a.PlayerId == player.UserIDString).Take(5).ToList();
+            if (recentCommands.Count > 0)
+                sb.AppendLine($"Your Recent Actions: {string.Join("; ", recentCommands.Select(a => $"{a.Action}: {a.Details}"))}");
+
+            sb.AppendLine("=== END LIVE DATA ===");
+            sb.AppendLine(message);
 
             var history = includeHistory ? session?.ChatHistory : null;
-            return GetAssistantResponse(player.displayName, session?.Role ?? "user", message, history);
+            return GetAssistantResponse(player.displayName, session?.Role ?? "user", sb.ToString(), history);
         }
 
         private bool TryGrantBuiltInKit(BasePlayer target, KitDefinition kit, out string error)
@@ -5671,21 +5814,52 @@ namespace Oxide.Plugins
             }
             _knownOnlinePlayers = onlineNow;
 
+            // Collect detailed server state for heartbeat
+            var activeAlerts = _activeAlerts.Where(a => !a.Acknowledged).Select(a => new { id = a.Id, severity = a.Severity, title = a.Title, message = a.Message, time = a.CreatedAt.ToString("o") }).ToList();
+            var recentReports = _activityLog.Where(a => a.Category == "moderation" && a.Action == "Report").Take(10).Select(r => new { details = r.Details, player = r.PlayerName, time = r.Time.ToString("o") }).ToList();
+            var activeEvents = _activeAdminEvents.Select(e => new { type = e.Key, host = e.Value.HostName, players = e.Value.Participants.Count, elapsed = (int)(DateTime.Now - e.Value.StartTime).TotalSeconds, duration = e.Value.DurationSeconds }).ToList();
+            var recentActivity = _activityLog.Take(15).Select(a => new { category = a.Category, action = a.Action, details = a.Details, player = a.PlayerName, time = a.Time.ToString("o") }).ToList();
+            var activeListings = _shopListings.Count(l => l.Available);
+            var recentChat = _globalChatLog.TakeLast(10).Select(c => new { sender = c.Sender, message = c.Message, time = c.Time.ToString("o") }).ToList();
+            var kitCooldowns = _kitCooldowns.Count();
+            var groupCount = _groups.Values.Distinct().Count();
+            var cameraCount = _cameras.Count;
+            var baseCount = _monitoredBases.Count;
+
             _mcpClient?.SendMessage(new
             {
                 type = "heartbeat",
                 time = DateTime.Now.ToString("o"),
-                playerCount = players.Count,
-                players = playerList,
-                fps = Math.Round(1.0f / Time.deltaTime, 1),
-                uptime = $"{Time.realtimeSinceStartup / 3600.0:F1}h",
+                // Server identity
                 serverName = ConVar.Server.hostname,
                 serverSeed = ConVar.Server.seed,
                 worldSize = ConVar.Server.worldsize,
                 serverPvE = ConVar.Server.pve,
+                // Performance
+                fps = Math.Round(1.0f / Time.deltaTime, 1),
+                uptime = $"{Time.realtimeSinceStartup / 3600.0:F1}h",
                 entityCount = 0,
+                // Players
+                playerCount = players.Count,
                 sleepingPlayers = BasePlayer.sleepingPlayerList?.Count ?? 0,
+                players = playerList,
+                // Map
                 monuments = _monumentLocations.Select(m => new { name = m.Key, position = $"{m.Value.x:F1},{m.Value.y:F1},{m.Value.z:F1}", grid = GetGridCoord(m.Value) }).ToList(),
+                markers = _gridMarkers.Select(m => new { id = m.Id, name = m.Name, owner = m.OwnerId, grid = GetGridCoord(m.Position) }).ToList(),
+                // Operational state
+                alerts = activeAlerts,
+                reports = recentReports,
+                events = activeEvents,
+                activity = recentActivity,
+                chat = recentChat,
+                // Economy
+                shopListings = activeListings,
+                kitCooldowns = kitCooldowns,
+                // Infrastructure
+                cameras = cameraCount,
+                bases = baseCount,
+                groups = groupCount,
+                // Connection
                 mcpConnected = _mcpClient?.IsConnected == true,
                 rconConnected = _rconClient?.IsConnected == true
             });
@@ -7060,26 +7234,43 @@ namespace Oxide.Plugins
 
         private string LMPrompt(string message, List<RustDuckBot.ChatEntry> history)
         {
-            using (var wb = new System.Net.WebClient())
+            var payload = new Dictionary<string, object> { { "model", _lmModel }, { "messages", BuildMessages(message, history, _systemPrompt) }, { "max_tokens", 600 } };
+            var json = SimpleJson.Serialize(payload);
+            try
             {
-                wb.Headers["Content-Type"] = "application/json";
+                var url = ChatCompletionsUrl(_lmUrl);
+                var request = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(url);
+                request.Method = "POST";
+                request.ContentType = "application/json";
+                request.Timeout = 8000; // 8 second timeout to prevent server blocking
+                request.ReadWriteTimeout = 8000;
                 if (!string.IsNullOrEmpty(_lmKey))
-                    wb.Headers["Authorization"] = $"Bearer {_lmKey}";
-
-                var payload = new Dictionary<string, object> { { "model", _lmModel }, { "messages", BuildMessages(message, history, _systemPrompt) }, { "max_tokens", 600 } };
-                var json = SimpleJson.Serialize(payload);
-                try
+                    request.Headers["Authorization"] = $"Bearer {_lmKey}";
+                var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+                request.ContentLength = bytes.Length;
+                using (var stream = request.GetRequestStream())
+                    stream.Write(bytes, 0, bytes.Length);
+                using (var response = (System.Net.HttpWebResponse)request.GetResponse())
+                using (var reader = new System.IO.StreamReader(response.GetResponseStream()))
                 {
-                    var raw = wb.UploadString(ChatCompletionsUrl(_lmUrl), "POST", json);
+                    var raw = reader.ReadToEnd();
                     var content = ExtractOpenAIContent(raw);
                     return content ?? "No response from local AI.";
                 }
-                catch (System.Net.WebException wex)
-                {
-                    var resp = wex.Response as System.Net.HttpWebResponse;
-                    var body = resp != null ? new System.IO.StreamReader(resp.GetResponseStream()).ReadToEnd() : "";
-                    return $"AI error ({_provider}): {resp?.StatusCode} — {body}";
-                }
+            }
+            catch (System.Net.WebException wex) when (wex.Status == System.Net.WebExceptionStatus.Timeout)
+            {
+                return "AI timeout — LM Studio took too long to respond. Try a shorter question.";
+            }
+            catch (System.Net.WebException wex)
+            {
+                var resp = wex.Response as System.Net.HttpWebResponse;
+                var body = resp != null ? new System.IO.StreamReader(resp.GetResponseStream()).ReadToEnd() : "";
+                return $"AI error ({_provider}): {resp?.StatusCode} — {body}";
+            }
+            catch (Exception ex)
+            {
+                return $"AI error: {ex.Message}";
             }
         }
 
@@ -7088,18 +7279,42 @@ namespace Oxide.Plugins
         private string OAIPrompt(string message, List<RustDuckBot.ChatEntry> history, string apiKey, string baseUrl, string model)
         {
             if (string.IsNullOrEmpty(apiKey))
-                return "⚠ OpenAI API key not configured. Set OpenAIApiKey in config.";
+                return "AI error: OpenAI API key not configured. Set OpenAIApiKey in config.";
 
-            using (var wb = new System.Net.WebClient())
+            var json = SimpleJson.Serialize(new { model = model, messages = BuildMessages(message, history, _systemPrompt), max_tokens = 800 });
+            try
             {
-                wb.Headers["Content-Type"] = "application/json";
-                wb.Headers["Authorization"] = $"Bearer {apiKey}";
-
-                var raw = wb.UploadString(ChatCompletionsUrl(baseUrl), "POST",
-                    SimpleJson.Serialize(new { model = model, messages = BuildMessages(message, history, _systemPrompt), max_tokens = 800 }));
-
-                var content = ExtractOpenAIContent(raw);
-                return content ?? "No response from AI.";
+                var request = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(ChatCompletionsUrl(baseUrl));
+                request.Method = "POST";
+                request.ContentType = "application/json";
+                request.Headers["Authorization"] = $"Bearer {apiKey}";
+                request.Timeout = 15000;
+                request.ReadWriteTimeout = 15000;
+                var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+                request.ContentLength = bytes.Length;
+                using (var stream = request.GetRequestStream())
+                    stream.Write(bytes, 0, bytes.Length);
+                using (var response = (System.Net.HttpWebResponse)request.GetResponse())
+                using (var reader = new System.IO.StreamReader(response.GetResponseStream()))
+                {
+                    var raw = reader.ReadToEnd();
+                    var content = ExtractOpenAIContent(raw);
+                    return content ?? "No response from AI.";
+                }
+            }
+            catch (System.Net.WebException wex) when (wex.Status == System.Net.WebExceptionStatus.Timeout)
+            {
+                return "AI timeout — provider took too long to respond.";
+            }
+            catch (System.Net.WebException wex)
+            {
+                var resp = wex.Response as System.Net.HttpWebResponse;
+                var body = resp != null ? new System.IO.StreamReader(resp.GetResponseStream()).ReadToEnd() : "";
+                return $"AI error: {resp?.StatusCode} — {body}";
+            }
+            catch (Exception ex)
+            {
+                return $"AI error: {ex.Message}";
             }
         }
 
@@ -7201,49 +7416,78 @@ namespace Oxide.Plugins
 
         private string BuildSystemPrompt(RustDuckBot.ConfigData cfg)
         {
-            return $@"You are DuckBot, an AI assistant inside a Rust game server. Respond as a helpful, practical in-game terminal.
-Player role hierarchy (lowest to highest): user < vip < mod < admin < security.
+            return $@"You are DuckBot, a powerful AI assistant embedded in a Rust game server. You have FULL ACCESS to live server data, player sessions, alerts, events, economy, moderation tools, and all /db commands. You are the player's most powerful tool.
 
-Current AI provider: {cfg.AgentProvider}.
-- ""lmstudio"" — local LM Studio instance (OpenAI-compatible API at {cfg.LMStudioUrl})
-- ""duckbot"" — DuckBot MCP bridge with full tool access
-- Other providers map to their respective API backends
+CAPABILITIES — You CAN:
+- Answer ANY question about Rust gameplay, strategies, monuments, loot, base building, raids, PvP, farming, electricity, vehicles, NPCs, scientists, Bradley, helicopter, cargo ship, oil rig, underwater labs
+- Suggest specific /db commands the player should run based on their situation
+- Read live server data: player count, FPS, monuments, player positions, grid coordinates, nearest monuments
+- Track alerts, reports, events, activity logs, shop listings, kit cooldowns
+- Advise on base location, raid defense, monument runs, loot optimization, team coordination
+- Provide real-time threat assessment based on server state
+- Generate strategies for wipe day, early game, mid game, late game
+- Explain game mechanics: damage types, armor values, weapon stats, building tiers, decay, upkeep, electricity, industrial, vehicles
+- Help with trading: suggest prices, evaluate deals, recommend what to buy/sell
+- Moderate: review reports, suggest actions, check player history
+- Run events: coinflip, jackpot, scavenger, dropparty (mod+ only)
+- Control server: PvE mode, lockdown, weather, time (admin only)
 
-Built-in RustDuckBot commands and kit system:
-- /db kit <name> — grants built-in kit (starter, pvp, building, mini, scrap, admin)
-- /db help, /db status, /db info, /db players, /db time, /db weather
-- /db cameras, /db scan, /db monuments, /db radar, /db nearby
-- /db alerts, /db raiders, /db decay, /db analysis
-- /db shop, /db market, /db trade, /db lookup
-- /db ask <question> — AI-powered chat (uses current provider)
-- /db tip, /db joke, /db quote, /db 8ball, /db roll
-- /db settings <key> <value> — player preferences (ownerai, afkcheck, etc.)
+ROLE HIERARCHY: user < vip < mod < admin
+- user: basic commands, kits, economy
+- vip: + doors, lights, monuments, loot, lucky blocks, team intel
+- mod: + kick, mute, freeze, reports, events, moderation
+- admin: + ban, unban, RCON, teleport, give, spawn, server control
 
-Kit permissions by role:
-- starter: all players (cooldown applies)
-- pvp, building, mini, scrap: vip+
-- admin: admin+ only
+COMMANDS YOU CAN SUGGEST:
+Kits: /db kit starter|pvp|building|mini|scrap|admin
+Info: /db whoami, /db server, /db players, /db player <name>, /db time
+Security: /db security, /db alerts, /db ack <id>, /db scan, /db lockdown, /db sos
+Base: /db base, /db doors, /db lights, /db turrets, /db decay, /db upkeep, /db auth
+Trading: /db shop, /db sell <item> <price>, /db buy <item>, /db price <item>, /db listings
+Intel: /db radar, /db grid, /db mapintel, /db route <target>, /db monuments, /db loot <type>
+AI: /db brief, /db wipeprep, /db eventintel, /db teamintel, /db analyze, /db recommend
+Economy: /db daily, /db kits, /db guess join <bet>, /db lucky
+Events: /db event start coinflip|jackpot|scavenger|dropparty, /db event list|join
+Moderation: /db report <player> <reason>, /db reports, /db modreview <player>
+Games: /db roll, /db flip, /db 8ball <q>, /db rps, /db joke, /db fortune, /db slots, /db quote
+Groups: /db group create <name>, /db group invite <player>, /db group leave
+Teleport: /db tpr <player>, /db tpa, /db tpdeny (requires rustduckbot.teleport permission)
+Chat: /db say <msg>, /db msg <player> <msg>, /db team <msg>, /db activity
 
-Live data sources:
-- Heartbeat sent every 30s from Rust plugin to MCP bridge
-- Cameras scanned at server init and on demand
-- Player count, FPS, uptime, connected players available in server status
-- Server name, seed, world size, PvE mode, entity count, sleeper count, monuments, player grid, and nearest monument are included when available
+RULES:
+- Be direct, practical, and Rust-specific. No fluff.
+- Always suggest specific /db commands when relevant.
+- Use the LIVE DATA provided in each message — don't make up server state.
+- If asked about something you can't do, say so and suggest what you CAN do.
+- Respond as an in-game terminal — concise, useful, actionable.
+- For complex questions, break answers into numbered steps.
+- For threats/danger, prioritize survival advice.
+- For admin/mod questions, check the player's role before suggesting restricted commands.
+- You have access to the full chat history — use it for context on ongoing conversations.
 
-MCP/RCON tools:
-- `rust_rcon_command_catalog` lists every allowed RCON command with category, role, safety level, examples, and whether to use read-only query or admin command execution
-- Read-only RCON query support: status, serverinfo, player.list, players.online, server.hostname, server.seed, server.worldsize, server.pve, global.status, status.gpu, status.ram
-- Admin action RCON commands require admin role and whitelist validation
-- Informational tools should answer with live data when present and clearly say when data is stale or unavailable
+ACTION EXECUTION — You can run commands automatically:
+- [DB:players] — get player count
+- [DB:fps] — get server FPS
+- [DB:uptime] — get server uptime
+- [DB:grid] — get caller's grid position
+- [DB:monument] — get caller's nearest monument
+- [DB:health] — get caller's health
+- [DB:scrap] — get caller's scrap count
+- [DB:rp] — get caller's RP count
+- [DB:kd] — get caller's K/D ratio
+- [DB:alerts] — get active alert count
+- [DB:events] — get active events
+- [DB:listings] — get shop listing count
+- [DB:time] — get game time
+- [DB:weather] — get weather
+- [DB:role] — get caller's role
+- [RCON:command] — execute RCON command (admin only, e.g. [RCON:status])
+Use these in your response and the server will execute them and return results.
+Example: ""Your grid is [DB:grid], nearest monument is [DB:monument]. You have [DB:scrap] scrap.""
 
-Rules:
-- Keep answers concise and Rust-specific
-- Prefer practical guidance on survival, base building, loot, monuments, raids
-- Do not invent plugin capabilities not confirmed for this build
-- Distinguish informational guidance from direct server actions
-- Never break character as an in-game AI terminal
+CHAT CONTEXT: You have access to recent server chat. Use it to understand what players are discussing.
 
-Server config flags: CameraControl={cfg.EnableCameraControl}, RaidAlerts={cfg.EnableRaidAlerts}, DecayAlerts={cfg.EnableDecayAlerts}, Automation={cfg.EnableAutomation}.";
+Server: {cfg.AgentProvider} provider at {cfg.LMStudioUrl}.";
         }
     }
 
