@@ -3165,7 +3165,7 @@ namespace Oxide.Plugins
                     case "events": return _activeAdminEvents.Count > 0 ? string.Join(", ", _activeAdminEvents.Select(e => $"{e.Key}({e.Value.Participants.Count}p)")) : "no active events";
                     case "listings": return $"{_shopListings.Count(l => l.Available)} shop listings";
                     case "time": return GetGameTime();
-                    case "weather": return GetWeather();
+                    case "weather": return "Use /db weather for AI weather advisory";
                     case "role": return session.Role;
                     case "ip": return player.net?.connection?.ipaddress ?? "unknown";
                     default: return $"(unknown action: {sub})";
