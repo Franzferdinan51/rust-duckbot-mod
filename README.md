@@ -238,109 +238,6 @@ Admins get **everything** — all commands across all roles, plus:
 - `/db settings` — server settings
 
 
-### 1. Copy the plugins
-```bash
-cp src/DuckBotMod.cs /path/to/rust/server/oxide/plugins/RustDuckBot.cs
-cp src/DuckBotCommandShim.cs /path/to/rust/server/oxide/plugins/RustDuckBotCommandShim.cs
-```
-Reload from server console: `oxide.reload RustDuckBot` and `oxide.reload RustDuckBotCommandShim`
-
-**WindowsGSM:** open the server's file browser from WindowsGSM and copy both files:
-```text
-src\DuckBotMod.cs          -> serverfiles\oxide\plugins\RustDuckBot.cs
-src\DuckBotCommandShim.cs  -> serverfiles\oxide\plugins\RustDuckBotCommandShim.cs
-```
-The WindowsGSM RustOxideWithRustEdit plugin starts `RustDedicated.exe` with `+rcon.web 1` and writes `server.cfg` in the server files directory. DuckBot config appears after first load at:
-```text
-serverfiles\oxide\config\RustDuckBot.json
-```
-
-### 2. Configure AI (edit `oxide/config/RustDuckBot.json`)
-
-**LM Studio on the same Windows host:**
-```json
-{ "AgentProvider": "lmstudio", "LMStudioUrl": "http://127.0.0.1:1234", "LMStudioModel": "qwen3.5-9b", "LMStudioApiKey": "" }
-```
-RustDuckBot accepts either `http://127.0.0.1:1234` or `http://127.0.0.1:1234/v1`; it normalizes the request to `/v1/chat/completions`. Set `LMStudioApiKey` only if LM Studio's server is configured to require one.
-
-**DuckBot MCP agent:**
-```json
-{ "AgentProvider": "duckbot", "AgentConfig": "http://localhost:18797" }
-```
-
-**OpenRouter (free tier):**
-```json
-{ "AgentProvider": "openrouter", "OpenAIApiKey": "sk-or-...", "OpenAIBaseUrl": "https://openrouter.ai/api/v1", "OpenAIModel": "google/gemini-2.0-flash-exp:free" }
-```
-
-### 3. Start MCP bridge (only needed for `duckbot` provider)
-```bash
-cd mcp && npm install && npm start
-```
-
-### 4. Enable RCON for AI admin tools
-
-For WindowsGSM, set the same RCON password in `server.cfg` and `oxide/config/RustDuckBot.json`. The WindowsGSM plugin enables WebRCON (`+rcon.web 1`) for you.
-
-```json
-{
-  "EnableWebSocketRCON": true,
-  "RCONPort": 28016,
-  "RCONPassword": "same-password-as-server.cfg",
-  "AllowedRCONCommands": [
-    "status",
-    "serverinfo",
-    "player.list",
-    "players.online",
-    "server.hostname",
-    "server.seed",
-    "server.worldsize",
-    "server.pve",
-    "global.status",
-    "kick",
-    "ban",
-    "banid",
-    "unban",
-    "say",
-    "global.say",
-    "inventory.give",
-    "teleport",
-    "teleport2me",
-    "weather",
-    "time",
-    "save",
-    "gc.collect",
-    "status.gpu",
-    "status.ram"
-  ]
-}
-```
-
-For MCP/agent use, mirror the command allowlist:
-```bash
-set RUST_DUCKBOT_ADMIN_TOKEN=change-me
-set RUST_DUCKBOT_ALLOWED_COMMANDS=status,serverinfo,player.list,players.online,server.hostname,server.seed,server.worldsize,server.pve,global.status,kick,ban,banid,unban,say,global.say,inventory.give,teleport,teleport2me,weather,time,save,gc.collect,status.gpu,status.ram
-```
-On macOS/Linux use `export` instead of `set`. The agent tool is `rust_rcon_command` and still requires an admin player role plus the admin token when configured.
-
-The agent can also use `rust_list_kits` and `rust_give_kit`; kit grants are admin-gated and arrive in the plugin as a `kit_give` bridge message.
-
-Player-safe MCP tools include `rust_roll_dice`, `rust_8ball`, and `rust_player_tip`. They run locally in the MCP server and can optionally announce results through the existing `chat_send` bridge, so they work for minigames, giveaways, quick base advice, or new-player help without needing RCON.
-
-### 5. Use in-game
-```
-/db help               all commands
-/db chat               open chat panel (also auto-opens at computer station)
-/db mapintel           AI map/world briefing from your location
-/db route outpost      AI route advice to a target monument/grid
-/db brief              AI summary of current world/server state
-/db wipeprep           AI wipe-start checklist
-/db eventintel         AI guidance for heli/cargo/Bradley style events
-/db report name reason report bad actors
-/db reports            staff report queue
-/db modreview name     AI moderation review for a player
-```
-
 ---
 
 ## Permissions
@@ -462,7 +359,7 @@ Full config is written to `oxide/config/RustDuckBot.json` on first load.
 | `DecayAlertHoursBefore` | `24` | Hours before decay to warn |
 | `EnableWebSocketRCON` | `true` | Allow plugin to connect to Rust WebRCON |
 | `RCONPort` | `28016` | Rust WebRCON port |
-| `RCONPassword` | _(empty)_ | Must match `+rcon.password` in server.cfg. Default matches live server. |
+| `RCONPassword` | `5150` | Must match `+rcon.password` in server.cfg |
 | `AllowedRCONCommands` | safe list | First-word allowlist for AI/MCP RCON commands |
 
 ---
